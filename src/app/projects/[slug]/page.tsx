@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProjectBySlug } from "@/server/projects/get-project";
 import { listFolders } from "@/server/folders/list-folders";
+import { listSpecs } from "@/server/specs/list-specs";
 import { FolderTree } from "@/components/folder-tree/FolderTree";
+import { SpecList } from "@/components/spec-list/SpecList";
 import { buttonVariants } from "@/components/ui/button";
 
 interface PageProps {
@@ -14,7 +16,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   const project = await getProjectBySlug(slug);
   if (!project) notFound();
 
-  const folders = await listFolders(project.id);
+  const [folders, specs] = await Promise.all([
+    listFolders(project.id),
+    listSpecs(project.id),
+  ]);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -43,12 +48,11 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         <aside>
           <FolderTree projectId={project.id} folders={folders} />
         </aside>
-        <section className="rounded-lg border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
-          <h2 className="font-medium">Spec 영역</h2>
-          <p className="mt-2 text-sm text-zinc-500">
-            Phase 1-D 에서 Spec 생성과 목록이 이 자리에 들어옵니다.
-          </p>
-        </section>
+        <SpecList
+          projectSlug={project.slug}
+          specs={specs}
+          folders={folders}
+        />
       </div>
     </main>
   );

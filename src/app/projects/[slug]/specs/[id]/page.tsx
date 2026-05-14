@@ -1,0 +1,152 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { getSpec } from "@/server/specs/get-spec";
+import { listFolders } from "@/server/folders/list-folders";
+import { updateSpec } from "@/server/specs/update-spec";
+import { deleteSpec } from "@/server/specs/delete-spec";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SpecType } from "@/generated/prisma/enums";
+import { cn } from "@/lib/utils";
+
+const TYPE_OPTIONS: { value: keyof typeof SpecType; label: string }[] = [
+  { value: "FeatureGroup", label: "Feature Group (Epic)" },
+  { value: "Feature", label: "Feature" },
+  { value: "Component", label: "Component" },
+  { value: "Tab", label: "Tab" },
+  { value: "State", label: "State" },
+];
+
+const TYPE_TONE: Record<string, string> = {
+  FeatureGroup:
+    "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200",
+  Feature: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
+  Component:
+    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
+  Tab: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  State: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
+};
+
+interface PageProps {
+  params: Promise<{ slug: string; id: string }>;
+}
+
+export default async function SpecDetailPage({ params }: PageProps) {
+  const { slug, id } = await params;
+
+  const spec = await getSpec(id);
+  if (!spec || spec.project.slug !== slug) notFound();
+
+  const folders = await listFolders(spec.project.id);
+  const deleteAction = deleteSpec.bind(null, spec.id);
+
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-10">
+      <header className="mb-6">
+        <div className="mb-1 text-xs text-zinc-500">
+          <Link href="/projects" className="hover:underline">
+            프로젝트
+          </Link>
+          <span className="mx-1.5">/</span>
+          <Link href={`/projects/${spec.project.slug}`} className="hover:underline">
+            {spec.project.slug}
+          </Link>
+          <span className="mx-1.5">/</span>
+          <span>{spec.id.slice(0, 8)}…</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+              TYPE_TONE[spec.type],
+            )}
+          >
+            {spec.type}
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight">{spec.title}</h1>
+        </div>
+      </header>
+
+      <section className="mb-8 rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="border-b border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+          메타데이터
+        </div>
+        <form action={updateSpec} className="space-y-5 p-5">
+          <input type="hidden" name="id" value={spec.id} />
+
+          <div className="space-y-2">
+            <Label htmlFor="title">제목</Label>
+            <Input
+              id="title"
+              name="title"
+              required
+              maxLength={200}
+              defaultValue={spec.title}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="type">타입</Label>
+            <select
+              id="type"
+              name="type"
+              required
+              defaultValue={spec.type}
+              className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
+            >
+              {TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="folderId">폴더</Label>
+            <select
+              id="folderId"
+              name="folderId"
+              defaultValue={spec.folderId ?? ""}
+              className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
+            >
+              <option value="">(루트)</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Button type="submit">저장</Button>
+        </form>
+      </section>
+
+      <section className="mb-8 rounded-lg border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
+        <h2 className="font-medium">본문 영역</h2>
+        <p className="mt-2 text-sm text-zinc-500">
+          Phase 1-E 에서 Tiptap Markdown 에디터 + Revision 자동저장이 여기 들어옵니다.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-medium uppercase text-zinc-500">
+          위험 영역
+        </h2>
+        <div className="rounded-lg border border-red-200 p-5 dark:border-red-900">
+          <h3 className="font-medium">Spec 삭제</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            연결된 Version / Revision / 관계 정보도 함께 영구 삭제됩니다.
+          </p>
+          <form action={deleteAction} className="mt-4">
+            <Button type="submit" variant="destructive">
+              이 Spec 삭제
+            </Button>
+          </form>
+        </div>
+      </section>
+    </main>
+  );
+}
