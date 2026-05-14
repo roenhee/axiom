@@ -141,6 +141,16 @@ Phase 1 이후 모든 mutation/조회는 다음 원칙을 따른다.
 
 **관련**: `docs/api.md`, Phase 1-B 진입 시 Server Action 위치 컨벤션 결정.
 
+### D-016. Server Action 위치 — `src/server/<도메인>/<동작>.ts`
+
+Server Action 코드는 `src/server/<도메인>/<동작>.ts` 한 파일당 한 액션 (예: `src/server/projects/create-project.ts`). 파일 첫 줄은 `"use server"`. UI 페이지(`src/app/...`)에서 import 해서 사용.
+
+**이유**: Phase 5까지 가면 액션이 ~50개로 늘어남 (Project / Folder / Spec / SpecVersion / Revision / Slot / AI Task / Comment / Export / Sync). 도메인 디렉토리로 모아두면 검색/일괄 권한 enforcement 추가/리팩토링이 쉽다. UI 옆 `actions.ts` 패턴은 한 액션을 여러 페이지에서 쓰기 시작하면 어디 둘지 매번 판단해야 함.
+
+**트레이드오프**: 페이지와 액션이 떨어져 있어 같이 수정할 때 두 군데 열어야 함. import 한 줄로 해결.
+
+**관련**: `src/server/projects/`(1-B), 이후 모든 mutation 코드.
+
 ---
 
 ## 템플릿 (앞으로 추가할 때 이 형식)

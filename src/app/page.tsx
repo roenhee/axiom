@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { buttonVariants } from "@/components/ui/button";
 
 export default async function Home() {
   const user = await getCurrentUser();
@@ -8,7 +10,10 @@ export default async function Home() {
       <h1 className="text-3xl font-semibold tracking-tight">
         Spec-Design-Prototype Hub
       </h1>
-      <p className="text-sm text-zinc-500">Phase 0 — 기반</p>
+      <p className="text-sm text-zinc-500">Phase 1 — Spec 계층 + Version</p>
+      <Link href="/projects" className={buttonVariants()}>
+        프로젝트 목록 보기 →
+      </Link>
       <div className="rounded-lg border border-zinc-200 bg-white px-5 py-4 text-sm shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="text-zinc-500">현재 사용자 (dev seed)</div>
         <div className="mt-1 font-medium">{user.name ?? "(이름 없음)"}</div>
