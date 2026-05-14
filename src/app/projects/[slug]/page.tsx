@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProjectBySlug } from "@/server/projects/get-project";
+import { listFolders } from "@/server/folders/list-folders";
+import { FolderTree } from "@/components/folder-tree/FolderTree";
 import { buttonVariants } from "@/components/ui/button";
 
 interface PageProps {
@@ -12,8 +14,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   const project = await getProjectBySlug(slug);
   if (!project) notFound();
 
+  const folders = await listFolders(project.id);
+
   return (
-    <main className="mx-auto max-w-4xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between">
         <div>
           <div className="mb-1 text-xs text-zinc-500">
@@ -35,12 +39,17 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </Link>
       </header>
 
-      <section className="rounded-lg border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
-        <h2 className="font-medium">아직 폴더나 Spec 이 없어요</h2>
-        <p className="mt-2 text-sm text-zinc-500">
-          Phase 1-C / 1-D 에서 폴더 트리와 Spec 생성이 붙으면 여기에 표시됩니다.
-        </p>
-      </section>
+      <div className="grid gap-6 md:grid-cols-[280px_1fr]">
+        <aside>
+          <FolderTree projectId={project.id} folders={folders} />
+        </aside>
+        <section className="rounded-lg border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
+          <h2 className="font-medium">Spec 영역</h2>
+          <p className="mt-2 text-sm text-zinc-500">
+            Phase 1-D 에서 Spec 생성과 목록이 이 자리에 들어옵니다.
+          </p>
+        </section>
+      </div>
     </main>
   );
 }
