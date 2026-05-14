@@ -4,6 +4,8 @@ import { getSpec } from "@/server/specs/get-spec";
 import { listFolders } from "@/server/folders/list-folders";
 import { updateSpec } from "@/server/specs/update-spec";
 import { deleteSpec } from "@/server/specs/delete-spec";
+import { getLatestRevisionMarkdown } from "@/server/revisions/get-latest-revision";
+import { SpecEditor } from "@/components/spec-editor/SpecEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +40,10 @@ export default async function SpecDetailPage({ params }: PageProps) {
   const spec = await getSpec(id);
   if (!spec || spec.project.slug !== slug) notFound();
 
-  const folders = await listFolders(spec.project.id);
+  const [folders, initialMarkdown] = await Promise.all([
+    listFolders(spec.project.id),
+    getLatestRevisionMarkdown(spec.id),
+  ]);
   const deleteAction = deleteSpec.bind(null, spec.id);
 
   return (
@@ -124,11 +129,8 @@ export default async function SpecDetailPage({ params }: PageProps) {
         </form>
       </section>
 
-      <section className="mb-8 rounded-lg border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700">
-        <h2 className="font-medium">본문 영역</h2>
-        <p className="mt-2 text-sm text-zinc-500">
-          Phase 1-E 에서 Tiptap Markdown 에디터 + Revision 자동저장이 여기 들어옵니다.
-        </p>
+      <section className="mb-8">
+        <SpecEditor specId={spec.id} initialMarkdown={initialMarkdown} />
       </section>
 
       <section>
