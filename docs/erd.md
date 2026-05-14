@@ -40,21 +40,21 @@ PRD 19.2 미정사항에서 시작한 1차 초안. Phase가 진행되며 각 엔
 
 ## Phase 0 — User
 
+사내 SSO 붙기 전까지 dev seed user 한 명만 존재 (decisions.md D-010). NextAuth Account/Session 테이블은 만들지 않는다. `image`도 후순위.
+
 ```prisma
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   name      String?
-  image     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt        @map("updated_at")
 
-  roles UserRole[]
-  // NextAuth 표준 관계 (Account, Session)는 별도
+  @@map("users")
 }
 ```
 
-NextAuth가 자동 생성하는 Account/Session/VerificationToken 모델은 표준 따름.
+> 역관계(`roles UserRole[]`, 댓글 작성자 등)는 해당 엔티티가 추가되는 Phase에서 같이 붙인다.
 
 ---
 

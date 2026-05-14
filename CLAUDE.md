@@ -42,14 +42,14 @@
 | 영역 | 선택 |
 |---|---|
 | 언어 | TypeScript |
-| 프레임워크 | Next.js 15 (App Router) |
+| 프레임워크 | Next.js 16 App Router (D-011, Turbopack 기본) |
 | DB | PostgreSQL 16 (로컬 직접 설치) |
-| ORM | Prisma |
-| 에디터 | Tiptap (Markdown 입출력) |
-| UI | Tailwind CSS + shadcn/ui |
-| 인증 | NextAuth (초기 Google OAuth, 추후 사내 IdP) |
-| AI | Anthropic SDK + Claude Code SDK (sub-process) |
-| Git 조작 | simple-git |
+| ORM | Prisma 7 (adapter 방식 — `@prisma/adapter-pg`) |
+| 에디터 | Tiptap (Markdown 입출력) — Phase 1에서 도입 |
+| UI | Tailwind CSS v4 + shadcn/ui |
+| 인증 | dev seed user 우회 (D-010) — 사내 SSO 붙이는 시점에 `src/lib/auth/current-user.ts` 본문만 갈아끼움 |
+| AI | Anthropic SDK + Claude Code SDK (sub-process) — Phase 4에서 도입 |
+| Git 조작 | simple-git — Phase 3에서 도입 |
 
 새 라이브러리를 도입할 때는 반드시 기획자에게 옵션 제시 후 결정.
 
@@ -144,24 +144,42 @@ PR/커밋 마무리 전:
 
 ---
 
-## 명령어 (Phase 0 셋업 완료 후 추가됨)
-
-> Phase 0에서 프로젝트를 init하면서 아래 명령어들을 실제로 채워 넣는다. 지금은 placeholder.
+## 명령어
 
 ```bash
-# 개발 서버 실행
+# 의존성
+npm install                        # postinstall에서 prisma generate 자동 실행
+
+# 개발 서버 — http://localhost:3000
 npm run dev
 
-# 마이그레이션
-npx prisma migrate dev --name <설명>
-npx prisma studio          # DB GUI
+# 빌드 / 프로덕션 실행
+npm run build
+npm start
 
 # 타입체크 / 린트
-npm run typecheck
-npm run lint
+npm run typecheck                  # tsc --noEmit
+npm run lint                       # eslint
 
-# 시드 데이터 (PRD 18장 시나리오)
+# 시드 데이터 (dev seed user 만들기 — 최초 셋업 + 시나리오 추가 시)
 npm run seed
+
+# DB
+npm run db:migrate -- --name <설명>   # 마이그레이션 생성+적용 (= prisma migrate dev)
+npm run db:studio                   # Prisma Studio (DB GUI)
+```
+
+### 자주 쓰는 한 줄 (트러블슈팅)
+
+```bash
+# Postgres 서비스 상태
+brew services list | grep postgres
+
+# DB 직접 접속
+psql spec_hub_dev
+
+# Prisma client만 다시 생성 (schema 변경 후 마이그레이션은 안 돌리고)
+npx prisma generate
 ```
 
 ---

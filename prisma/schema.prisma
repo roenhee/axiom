@@ -1,0 +1,28 @@
+// Spec-Design-Prototype Hub — Prisma Schema
+// 데이터 모델 변경 시 docs/erd.md도 같은 커밋에서 갱신할 것 (CLAUDE.md "작업 종료 시 체크리스트")
+// 마이그레이션: npx prisma migrate dev --name <설명>
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// Phase 0 — User만
+// 사내 SSO 붙기 전까지는 src/lib/auth/current-user.ts가 dev seed user를 반환한다.
+// SSO 붙는 시점에 oauth_provider, sso_subject 등 컬럼이 추가될 수 있음.
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}

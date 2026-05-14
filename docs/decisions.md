@@ -71,6 +71,59 @@ TypeScript, Next.js 15 App Router, PostgreSQL 16, Prisma, Tiptap, Tailwind, shad
 
 ---
 
+## 2026-05-14 — Phase 0 셋업 결정 묶음
+
+### D-010. 로그인 우회 — dev seed user 패턴 (옵션 A)
+
+NextAuth/Google OAuth 셋업을 Phase 0에서 하지 않는다. 대신:
+
+- `User` 모델은 schema에 그대로 둔다 (ERD 일관성, 미래 사내 SSO 붙일 때 그대로 사용).
+- `prisma/seed.ts`가 `.env`의 `DEV_USER_EMAIL`/`DEV_USER_NAME`에 해당하는 user를 upsert.
+- `src/lib/auth/current-user.ts`의 `getCurrentUser()` / `getCurrentUserId()` 가 항상 이 user를 반환.
+- 모든 server action / API route는 이 두 함수만 호출 — 호출처는 SSO 붙어도 그대로.
+
+**이유**: 사내 SSO로 갈 거라 OAuth 셋업이 폐기될 일. 이 시점에 NextAuth 붙여 봐야 나중에 다 뜯어내야 함. 한편 User 모델 자체를 미루는 옵션 C는 ERD에 이미 User FK가 박혀 있어 마이그레이션 통증이 큼.
+
+**트레이드오프**: 권한 시나리오(Phase 5 Viewer 등)를 클릭으로 시연하려면 DB에서 user의 role을 갈아 넣어야 함. 그때 필요해지면 옵션 B(URL param 스위처)로 보강한다.
+
+**관련**: `src/lib/auth/current-user.ts`, `prisma/seed.ts`, `.env.example`, CLAUDE.md "스택" 표.
+
+### D-011. Next.js 16 채택 (CLAUDE.md의 "Next.js 15"에서 변경)
+
+`npx create-next-app@latest`가 Next 16.2.6을 설치. CLAUDE.md 본문은 "Next.js 15"라고 적혀 있었지만, 16의 App Router는 15와 호환되고 Turbopack도 기본 활성. 굳이 15로 다운그레이드할 이유 없음.
+
+**이유**: 최신 stable. 새 프로젝트 시작 시점 그대로.
+
+**관련**: `package.json`(next 16.2.6), `AGENTS.md`(Next 16 변경 주의사항), CLAUDE.md 스택 표 갱신.
+
+### D-012. Prisma 7 + adapter-pg 채택
+
+Prisma 7은 PrismaClient에 `adapter` 옵션 필수. `@prisma/adapter-pg`를 어댑터로 쓴다. 생성된 client는 `src/generated/prisma/client.ts`에 위치 (Prisma 7 기본).
+
+**이유**: Prisma 7 기본 방식 따라감. 6 이하로 다운그레이드할 사유 없음.
+
+**트레이드오프**: 학습 자료가 아직 Prisma 6 기준이 많음. 차이점 — `import { PrismaClient } from "@/generated/prisma/client"`, 생성자에 adapter 전달.
+
+**관련**: `src/lib/db.ts`, `prisma/seed.ts`, `prisma.config.ts`.
+
+### D-013. Phase 0에선 Tiptap / Anthropic / simple-git 도입 보류
+
+PRD/CLAUDE.md 스택 표에 적혀 있지만 각각 Phase 1(Tiptap), Phase 4(Anthropic), Phase 3(simple-git)에 들어갈 때 install. 지금부터 깔아두면 미사용 dependency가 됨.
+
+**이유**: 작은 의존성 덩어리 유지. 도입 시점에 최신 버전을 받는 게 유리.
+
+**관련**: CLAUDE.md 스택 표에 도입 시점 메모 추가.
+
+### D-014. `.claude/` 디렉토리는 git에 안 올림
+
+`.claude/settings.local.json` 등 개인 세션 설정이 들어가 있어 공유 안 함. `.gitignore`에 `.claude/` 추가.
+
+**이유**: 다른 작업자 노트북마다 개인 설정이 달라야 함.
+
+**관련**: `.gitignore`.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

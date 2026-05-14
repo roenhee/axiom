@@ -122,27 +122,19 @@ Linux:
 DATABASE_URL="postgresql://myname:devpass@localhost:5432/spec_hub_dev"
 ```
 
-### NEXTAUTH_SECRET
+### HUB_BASE_URL
 
-```bash
-# 무작위 시크릿 생성
-openssl rand -base64 32
-```
+로컬은 `http://localhost:3000`. 사내 서버 가면 거기 URL로 변경.
 
-출력된 값을 `NEXTAUTH_SECRET`에 붙여 넣는다.
+### DEV_USER_EMAIL, DEV_USER_NAME (dev 모드 로그인 우회)
 
-### NEXTAUTH_URL
+`docs/decisions.md`의 D-010 결정에 따라, 사내 SSO 붙기 전까지는 NextAuth/Google OAuth를 안 쓴다. 대신 한 명의 seed user를 만들어 두고 모든 요청을 그 user 로 인증한 것으로 처리한다.
 
-로컬은 `http://localhost:3000`.
+기본값 그대로(`dev@local` / `Dev User`) 두면 됨. 본인 이메일로 바꿔도 됨.
 
-### GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+`npm run seed` 가 이 두 값을 읽어 DB에 user 를 upsert한다. `src/lib/auth/current-user.ts` 의 `getCurrentUser()` 가 이 값을 키로 user 를 찾는다.
 
-[Google Cloud Console](https://console.cloud.google.com/) → 새 프로젝트 → OAuth 동의 화면 → OAuth 2.0 클라이언트 ID 생성:
-
-- 애플리케이션 유형: 웹 애플리케이션
-- 승인된 리디렉션 URI: `http://localhost:3000/api/auth/callback/google`
-
-발급된 client ID, secret을 `.env`에 채운다.
+사내 SSO 붙는 시점에 이 두 env 변수는 제거하고 `current-user.ts` 본문만 갈아끼우면 호출처는 변경 없음.
 
 ### ANTHROPIC_API_KEY
 

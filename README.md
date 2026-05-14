@@ -25,19 +25,27 @@ cp .env.example .env
 
 Claude Code 데스크톱 앱에서 이 레포 디렉토리를 연다. Claude Code가 자동으로 [`CLAUDE.md`](CLAUDE.md)를 읽는다.
 
-### 4. 첫 작업: Phase 0
+### 4. 의존성 설치 + DB 초기화
 
-[`docs/development-phases.md`](docs/development-phases.md)의 **Phase 0** 항목을 Claude Code와 함께 진행한다.
+```bash
+npm install                  # postinstall에서 prisma generate 자동 실행
+npm run db:migrate           # 마이그레이션 적용 (이미 적용된 상태면 no-op)
+npm run seed                 # .env의 DEV_USER_EMAIL로 dev user 생성
+```
 
-Phase 0에서 다음을 init한다.
+### 5. 개발 서버
 
-- Next.js 15 프로젝트
-- Prisma + Postgres 연결
-- Tailwind + shadcn/ui
-- NextAuth Google OAuth
-- 첫 빈 페이지 + 로그인
+```bash
+npm run dev
+```
 
-Phase 0이 끝나면 `npm run dev`로 띄워서 로그인 → 빈 홈 화면을 볼 수 있다.
+브라우저에서 `http://localhost:3000` 접속 → "Spec-Design-Prototype Hub" 홈 화면 + dev seed user 카드.
+
+> 사내 SSO 붙기 전까지는 `src/lib/auth/current-user.ts`가 항상 dev user를 반환한다. 자세한 건 [`docs/decisions.md`](docs/decisions.md)의 D-010.
+
+### 6. 다음 작업: Phase 1
+
+Phase 0(기반)은 완료된 상태. 다음은 [`docs/development-phases.md`](docs/development-phases.md)의 **Phase 1** — Spec 계층 + Version.
 
 ---
 
@@ -60,11 +68,20 @@ spec-design-prototype-hub/
     └── decisions.md             ← 의사결정 이력
 ```
 
-Phase 0이 끝나면 다음 디렉토리들이 추가된다.
+Phase 0에서 추가된 디렉토리:
 
 ```
-├── src/                         ← Next.js 소스
-├── prisma/                      ← Prisma schema + 마이그레이션
+├── src/
+│   ├── app/                     ← Next.js App Router 페이지
+│   ├── components/ui/           ← shadcn/ui 컴포넌트
+│   ├── generated/prisma/        ← Prisma 생성 client (커밋 안 함)
+│   └── lib/
+│       ├── auth/current-user.ts ← 로그인 우회 진입점 (D-010)
+│       └── db.ts                ← Prisma 싱글톤
+├── prisma/
+│   ├── schema.prisma            ← 데이터 모델
+│   ├── seed.ts                  ← dev user seed
+│   └── migrations/              ← 마이그레이션 이력
 └── public/
 ```
 
