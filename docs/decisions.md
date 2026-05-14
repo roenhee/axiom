@@ -124,6 +124,25 @@ PRD/CLAUDE.md 스택 표에 적혀 있지만 각각 Phase 1(Tiptap), Phase 4(Ant
 
 ---
 
+## 2026-05-14 — Phase 1 진입 결정
+
+### D-015. 데이터 호출 패턴 — 하이브리드 (Server Action 우선, 필요분만 API Route)
+
+Phase 1 이후 모든 mutation/조회는 다음 원칙을 따른다.
+
+- **기본은 Server Action** (`"use server"`). Hub UI 가 호출하는 모든 데이터 호출은 Server Action.
+- **API Route 는 외부 노출이 필요한 endpoint 만 추가**. 외부 = 다른 사내 도구(Slack bot, CI, CLI 등) 또는 prototype repo 내부에서 호출되어야 하는 경우. MVP 범위 내에선 등장하지 않을 가능성이 큼.
+- **`docs/api.md` 는 외부 노출 endpoint 만 명세**. 내부 Server Action 은 `docs/api.md` 가 아니라 코드 그 자체가 명세. (현재 api.md 에 적힌 Phase 1 endpoint 표는 "이런 의미의 호출이 있다"는 contract 차원으로 유지하되, 실제 구현은 Server Action 으로 매핑.)
+- Server Action 의 위치 컨벤션 — `src/server/<도메인>/<동작>.ts` 또는 `src/app/.../actions.ts` 중 하나로 통일. 1-B 들어가면서 확정.
+
+**이유**: PRD/CLAUDE.md 어디에도 외부 도구가 Hub 를 HTTP 호출하는 시나리오가 없음. AI Runner 는 sub-process(HTTP 아님), prototype repo 는 git 으로 조작. Server Action 이 코드량이 적고 타입 안전. 사내 서버 이전 시점에도 인프라는 동일 (모두 Next.js 프로세스 1개).
+
+**트레이드오프**: 사내 다른 도구(Slack bot, 대시보드 등)와 연동 욕구가 생기는 시점에 endpoint 단위로 API Route 를 추가해야 함. 그때 명세는 `docs/api.md` 에 같이 적는다. 또한 모니터링 인프라에서 endpoint 단위 metric 이 필요해지면 그때 API Route 로 일부 옮길 수 있음.
+
+**관련**: `docs/api.md`, Phase 1-B 진입 시 Server Action 위치 컨벤션 결정.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

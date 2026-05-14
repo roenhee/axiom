@@ -12,9 +12,8 @@ datasource db {
 }
 
 // ============================================================
-// Phase 0 — User만
-// 사내 SSO 붙기 전까지는 src/lib/auth/current-user.ts가 dev seed user를 반환한다.
-// SSO 붙는 시점에 oauth_provider, sso_subject 등 컬럼이 추가될 수 있음.
+// Phase 0 — User
+// 사내 SSO 붙기 전까지는 src/lib/auth/current-user.ts가 dev seed user를 반환.
 // ============================================================
 
 model User {
@@ -22,7 +21,182 @@ model User {
   email     String   @unique
   name      String?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
+
+  // Phase 1 역관계
+  roles                   UserRole[]
+  specsAsTaskOwner        Spec[]        @relation("SpecTaskOwner")
+  specsAsDesignContact    Spec[]        @relation("SpecDesignContact")
+  specsAsPrototypeContact Spec[]        @relation("SpecPrototypeContact")
+  specsAsSlotOwner        Spec[]        @relation("SpecSlotOwner")
+  versionsCreated         SpecVersion[]
+  revisions               Revision[]
 
   @@map("users")
+}
+
+// ============================================================
+// Phase 1 — Spec 계층 / Version
+// PRD 6, 7, 4장
+// ============================================================
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
+
+  folders Folder[]
+  specs   Spec[]
+  members UserRole[]
+
+  @@map("projects")
+}
+
+/// 자유 탐색 폴더 (PRD 6.2). 구조화 의미 X.
+model Folder {
+  id        String   @id @default(cuid())
+  projectId String   @map("project_id")
+  parentId  String?  @map("parent_id")
+  name      String
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Folder[] @relation("FolderTree")
+  specs    Spec[]
+
+  @@index([projectId, parentId])
+  @@map("folders")
+}
+
+enum SpecType {
+  FeatureGroup
+  Feature
+  Component
+  Tab
+  State
+}
+
+model Spec {
+  id                 String   @id @default(cuid())
+  projectId          String   @map("project_id")
+  folderId           String?  @map("folder_id")
+  type               SpecType
+  title              String
+  // PRD 4.6 metadata — 담당자 정보. Phase 5에서 실제 enforcement.
+  taskOwnerId        String?  @map("task_owner_id")
+  designContactId    String?  @map("design_contact_id")
+  prototypeContactId String?  @map("prototype_contact_id")
+  slotOwnerId        String?  @map("slot_owner_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt       @map("updated_at")
+
+  project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder           Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  taskOwner        User?   @relation("SpecTaskOwner",        fields: [taskOwnerId],        references: [id], onDelete: SetNull)
+  designContact    User?   @relation("SpecDesignContact",    fields: [designContactId],    references: [id], onDelete: SetNull)
+  prototypeContact User?   @relation("SpecPrototypeContact", fields: [prototypeContactId], references: [id], onDelete: SetNull)
+  slotOwner        User?   @relation("SpecSlotOwner",        fields: [slotOwnerId],        references: [id], onDelete: SetNull)
+
+  versions      SpecVersion[]
+  revisions     Revision[]
+  relationsFrom SpecRelation[] @relation("FromSpec")
+  relationsTo   SpecRelation[] @relation("ToSpec")
+
+  @@index([projectId, folderId])
+  @@map("specs")
+}
+
+enum SpecRelationType {
+  contains
+  depends_on
+  related_component
+  related_slot
+  related_figma
+  related_prototype_route
+  related_ai_task
+}
+
+/// PRD 6.4 관계 정보. Spec ↔ Spec.
+/// related_figma / related_slot / related_prototype_route / related_ai_task 는
+/// 해당 Phase 진입 시 별도 관계 테이블로 분리될 수도 있음 — 일단 평면 보관.
+model SpecRelation {
+  id     String           @id @default(cuid())
+  fromId String           @map("from_id")
+  toId   String           @map("to_id")
+  type   SpecRelationType
+
+  from Spec @relation("FromSpec", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Spec @relation("ToSpec",   fields: [toId],   references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+  @@index([toId, type])
+  @@map("spec_relations")
+}
+
+enum SpecStatus {
+  Draft
+  Published
+  Archived
+}
+
+/// PRD 7.3, 7.4. 공식 협업 기준 스냅샷.
+model SpecVersion {
+  id            String     @id @default(cuid())
+  specId        String     @map("spec_id")
+  versionLabel  String     @map("version_label") // "v1", "v2"
+  status        SpecStatus @default(Draft)
+  markdown      String     @db.Text
+  changeSummary String?    @map("change_summary")
+  changeType    String?    @map("change_type")
+  createdById   String     @map("created_by_id")
+  publishedAt   DateTime?  @map("published_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  spec      Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([specId, versionLabel])
+  @@index([specId, status])
+  @@map("spec_versions")
+}
+
+/// PRD 7.2. Tiptap 자동 저장 1건 = Revision 1개.
+model Revision {
+  id        String   @id @default(cuid())
+  specId    String   @map("spec_id")
+  markdown  String   @db.Text
+  authorId  String   @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  spec   Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([specId, createdAt])
+  @@map("revisions")
+}
+
+enum RoleLevel {
+  Viewer
+  TaskOwner
+  PrototypeOwner
+  ProjectOwner
+}
+
+/// PRD 4장. Phase 1 에선 모델만, Phase 5 에서 enforcement.
+model UserRole {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  projectId String    @map("project_id")
+  level     RoleLevel
+
+  user    User    @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@map("user_roles")
 }

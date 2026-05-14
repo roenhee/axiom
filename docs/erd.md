@@ -48,17 +48,27 @@ model User {
   email     String   @unique
   name      String?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt        @map("updated_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
+
+  // Phase 1 역관계
+  roles                   UserRole[]
+  specsAsTaskOwner        Spec[]        @relation("SpecTaskOwner")
+  specsAsDesignContact    Spec[]        @relation("SpecDesignContact")
+  specsAsPrototypeContact Spec[]        @relation("SpecPrototypeContact")
+  specsAsSlotOwner        Spec[]        @relation("SpecSlotOwner")
+  versionsCreated         SpecVersion[]
+  revisions               Revision[]
+  // Phase 5 에서 댓글 작성자 등이 추가될 예정
 
   @@map("users")
 }
 ```
 
-> 역관계(`roles UserRole[]`, 댓글 작성자 등)는 해당 엔티티가 추가되는 Phase에서 같이 붙인다.
-
 ---
 
 ## Phase 1 — Spec 계층
+
+> 실제 구현된 schema는 [prisma/schema.prisma](../prisma/schema.prisma) 가 진실. 이 섹션은 schema 와 1:1 미러.
 
 ### Project
 
@@ -68,12 +78,14 @@ model Project {
   name      String
   slug      String   @unique
   archived  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt       @map("updated_at")
 
-  folders  Folder[]
-  specs    Spec[]
-  members  UserRole[]
+  folders Folder[]
+  specs   Spec[]
+  members UserRole[]
+
+  @@map("projects")
 }
 ```
 
@@ -84,16 +96,19 @@ model Project {
 ```prisma
 model Folder {
   id        String   @id @default(cuid())
-  projectId String
-  parentId  String?    // 폴더 중첩
+  projectId String   @map("project_id")
+  parentId  String?  @map("parent_id")
   name      String
-  order     Int        @default(0)
-  createdAt DateTime @default(now())
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
 
-  project   Project  @relation(fields: [projectId], references: [id])
-  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id])
-  children  Folder[] @relation("FolderTree")
-  specs     Spec[]
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Folder[] @relation("FolderTree")
+  specs    Spec[]
+
+  @@index([projectId, parentId])
+  @@map("folders")
 }
 ```
 
@@ -109,26 +124,32 @@ enum SpecType {
 }
 
 model Spec {
-  id        String   @id @default(cuid())
-  projectId String
-  folderId  String?
-  type      SpecType
-  title     String
-  // metadata (PRD 4.6) — 담당자 정보
-  taskOwnerId       String?
-  designContactId   String?
-  prototypeContactId String?
-  slotOwnerId       String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  projectId          String   @map("project_id")
+  folderId           String?  @map("folder_id")
+  type               SpecType
+  title              String
+  taskOwnerId        String?  @map("task_owner_id")
+  designContactId    String?  @map("design_contact_id")
+  prototypeContactId String?  @map("prototype_contact_id")
+  slotOwnerId        String?  @map("slot_owner_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt       @map("updated_at")
 
-  project   Project @relation(fields: [projectId], references: [id])
-  folder    Folder? @relation(fields: [folderId], references: [id])
-  versions  SpecVersion[]
-  revisions Revision[]
-  // 관계 정보 (PRD 6.4) — 별도 SpecRelation 모델로 분리 권장
+  project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder           Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  taskOwner        User?   @relation("SpecTaskOwner",        fields: [taskOwnerId],        references: [id], onDelete: SetNull)
+  designContact    User?   @relation("SpecDesignContact",    fields: [designContactId],    references: [id], onDelete: SetNull)
+  prototypeContact User?   @relation("SpecPrototypeContact", fields: [prototypeContactId], references: [id], onDelete: SetNull)
+  slotOwner        User?   @relation("SpecSlotOwner",        fields: [slotOwnerId],        references: [id], onDelete: SetNull)
+
+  versions      SpecVersion[]
+  revisions     Revision[]
   relationsFrom SpecRelation[] @relation("FromSpec")
   relationsTo   SpecRelation[] @relation("ToSpec")
+
+  @@index([projectId, folderId])
+  @@map("specs")
 }
 
 enum SpecRelationType {
@@ -136,21 +157,23 @@ enum SpecRelationType {
   depends_on
   related_component
   related_slot
-  related_figma         // 직접 FigmaFrame과 연결할 수도 있지만, 일관성을 위해 별도 테이블
+  related_figma          // Phase 2 이후 별도 테이블로 분리 가능 (지금은 평면 보관)
   related_prototype_route
   related_ai_task
 }
 
 model SpecRelation {
-  id     String @id @default(cuid())
-  fromId String
-  toId   String
+  id     String           @id @default(cuid())
+  fromId String           @map("from_id")
+  toId   String           @map("to_id")
   type   SpecRelationType
 
-  from Spec @relation("FromSpec", fields: [fromId], references: [id])
-  to   Spec @relation("ToSpec", fields: [toId], references: [id])
+  from Spec @relation("FromSpec", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Spec @relation("ToSpec",   fields: [toId],   references: [id], onDelete: Cascade)
 
   @@unique([fromId, toId, type])
+  @@index([toId, type])
+  @@map("spec_relations")
 }
 ```
 
@@ -166,21 +189,23 @@ enum SpecStatus {
 }
 
 model SpecVersion {
-  id           String   @id @default(cuid())
-  specId       String
-  versionLabel String   // "v1", "v2"
-  status       SpecStatus @default(Draft)
-  markdown     String   @db.Text   // 본문 스냅샷
-  changeSummary String?
-  changeType    String?  // 자유 텍스트 enum 분리는 추후
-  createdById  String
-  publishedAt  DateTime?
-  createdAt    DateTime @default(now())
+  id            String     @id @default(cuid())
+  specId        String     @map("spec_id")
+  versionLabel  String     @map("version_label")
+  status        SpecStatus @default(Draft)
+  markdown      String     @db.Text
+  changeSummary String?    @map("change_summary")
+  changeType    String?    @map("change_type")
+  createdById   String     @map("created_by_id")
+  publishedAt   DateTime?  @map("published_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
 
-  spec      Spec @relation(fields: [specId], references: [id])
-  createdBy User @relation(fields: [createdById], references: [id])
+  spec      Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
 
   @@unique([specId, versionLabel])
+  @@index([specId, status])
+  @@map("spec_versions")
 }
 ```
 
@@ -191,15 +216,16 @@ PRD 7.2. 자동 저장.
 ```prisma
 model Revision {
   id        String   @id @default(cuid())
-  specId    String
+  specId    String   @map("spec_id")
   markdown  String   @db.Text
-  authorId  String
-  createdAt DateTime @default(now())
+  authorId  String   @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  spec   Spec @relation(fields: [specId], references: [id])
-  author User @relation(fields: [authorId], references: [id])
+  spec   Spec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
 
   @@index([specId, createdAt])
+  @@map("revisions")
 }
 ```
 
@@ -216,15 +242,16 @@ enum RoleLevel {
 }
 
 model UserRole {
-  id        String   @id @default(cuid())
-  userId    String
-  projectId String
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  projectId String    @map("project_id")
   level     RoleLevel
 
-  user    User    @relation(fields: [userId], references: [id])
-  project Project @relation(fields: [projectId], references: [id])
+  user    User    @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([userId, projectId])
+  @@map("user_roles")
 }
 ```
 
