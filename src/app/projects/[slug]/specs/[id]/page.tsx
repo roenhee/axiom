@@ -113,7 +113,7 @@ export default async function SpecDetailPage({ params }: PageProps) {
             {spec.project.slug}
           </Link>
           <span className="mx-1.5">/</span>
-          <span>{spec.id.slice(0, 8)}…</span>
+          <span>{spec.title}</span>
         </div>
         <div className="flex items-center gap-3">
           <span
