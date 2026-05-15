@@ -34,6 +34,7 @@ import { HelpPopover } from "./HelpPopover";
 import {
   Plus,
   Folder as FolderIcon,
+  FolderCog,
   Layers,
   Sparkles,
   Component as ComponentIcon,
@@ -69,7 +70,6 @@ interface Props {
   specs: SpecNode[];
 }
 
-const ROOT_DROP_ID = "__root__";
 const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
 
@@ -149,7 +149,13 @@ export function FolderSpecTree({
       arr.push(f);
       map.set(f.parentId, arr);
     }
-    for (const arr of map.values()) arr.sort((a, b) => a.order - b.order);
+    for (const arr of map.values()) {
+      arr.sort((a, b) => {
+        // isLocked 폴더는 같은 부모 안에서 항상 최상단.
+        if (a.isLocked !== b.isLocked) return a.isLocked ? -1 : 1;
+        return a.order - b.order;
+      });
+    }
     return map;
   }, [folders]);
 
@@ -366,14 +372,13 @@ export function FolderSpecTree({
     setDraggingId(null);
     const activeId = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
-    if (!overId) return;
     if (overId === activeId) return;
 
-    // drop target 종류 — 폴더 / Spec / 루트
+    // drop target 종류 — 폴더 / Spec / 루트 (over=null 도 루트로 처리).
     let targetFolderId: string | null = null;
     let targetSpecId: string | null = null;
-    if (overId === ROOT_DROP_ID) {
-      // 둘 다 null — 루트로
+    if (overId === null) {
+      // 트리 영역의 빈 공간 / 트리 밖에 떨어뜨림 → 루트로 이동.
     } else if (overId.startsWith(FOLDER_PREFIX)) {
       targetFolderId = overId.slice(FOLDER_PREFIX.length);
     } else if (overId.startsWith(SPEC_PREFIX)) {
@@ -439,7 +444,10 @@ export function FolderSpecTree({
       creating.parentSpecId === null;
     return (
       <>
-        {folderChildren.map((folder) => {
+        {folderChildren.map((folder, i) => {
+          const prev = folderChildren[i - 1];
+          const showDividerBefore =
+            prev !== undefined && prev.isLocked && !folder.isLocked;
           const isExpanded = expanded.has(folder.id);
           const isCreatingInside =
             (creating?.kind === "folder" && creating.parentFolderId === folder.id) ||
@@ -452,6 +460,12 @@ export function FolderSpecTree({
             isCreatingInside;
           return (
             <div key={`f-${folder.id}`}>
+              {showDividerBefore && (
+                <div
+                  className="mx-3 my-1 border-t border-zinc-200 dark:border-zinc-800"
+                  aria-hidden="true"
+                />
+              )}
               <FolderRow
                 folder={folder}
                 depth={depth}
@@ -605,7 +619,6 @@ export function FolderSpecTree({
         </div>
 
         <div className="flex-1 overflow-y-auto py-1">
-          <RootDropZone visible={draggingId !== null} />
           {creating?.kind === "folder" && creating.parentFolderId === null && (
             <NewFolderInput
               projectId={projectId}
@@ -646,28 +659,6 @@ export function FolderSpecTree({
         ) : null}
       </DragOverlay>
     </DndContext>
-  );
-}
-
-// ============================================================
-// Root drop zone
-// ============================================================
-
-function RootDropZone({ visible }: { visible: boolean }) {
-  const { setNodeRef, isOver } = useDroppable({ id: ROOT_DROP_ID });
-  if (!visible) return null;
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        "mx-2 mb-1 rounded border border-dashed py-2 text-center text-xs",
-        isOver
-          ? "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950 dark:text-blue-200"
-          : "border-zinc-300 text-zinc-400 dark:border-zinc-700",
-      )}
-    >
-      여기에 놓으면 루트로 이동
-    </div>
   );
 }
 
@@ -787,7 +778,11 @@ function FolderRow({
               <GripVertical className="h-3.5 w-3.5" />
             </button>
           )}
-          <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+          {folder.isLocked ? (
+            <FolderCog className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          ) : (
+            <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+          )}
           <span className="flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">
             {folder.name}
           </span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   HelpCircle,
   Layers,
@@ -52,68 +53,110 @@ const DOC_TYPES: DocTypeEntry[] = [
   },
 ];
 
+const POPOVER_WIDTH = 320;
+
 /**
  * 트리 헤더 옆 ? 아이콘. 클릭 시 5 개 문서 타입 설명 popover.
- * outside-click / Esc 로 닫힘.
+ * 좌측 트리 aside 의 overflow-hidden 에 갇히지 않도록 body 에 portal 로 렌더.
+ * outside-click / Esc 로 닫힘. window resize 시 위치 재계산.
  */
 export function HelpPopover() {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setMounted(true), []);
+
+  // 위치 계산 — 트리거 아래 + 6px.
+  function recomputePosition() {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setPosition({ top: rect.bottom + 6, left: rect.left });
+  }
 
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (
+        !triggerRef.current?.contains(target) &&
+        !popoverRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
+    function onResize() {
+      recomputePosition();
+    }
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onResize, true);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onResize, true);
     };
   }, [open]);
 
-  return (
-    <div ref={ref} className="relative inline-flex">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
+  function handleToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open) recomputePosition();
+    setOpen((o) => !o);
+  }
+
+  const popoverContent =
+    open && position && mounted ? (
+      <div
+        ref={popoverRef}
+        role="dialog"
+        className="fixed z-50 rounded-md border border-zinc-200 bg-white p-3 shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+        style={{
+          top: position.top,
+          left: position.left,
+          width: POPOVER_WIDTH,
         }}
+      >
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          문서 타입
+        </div>
+        <dl className="space-y-2.5">
+          {DOC_TYPES.map(({ Icon, label, iconColor, description }) => (
+            <div key={label}>
+              <dt className="flex items-center gap-1.5 text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                <Icon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
+                {label}
+              </dt>
+              <dd className="mt-0.5 pl-5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                {description}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
         className="text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200"
         aria-label="문서 타입 도움말"
         title="문서 타입 도움말"
       >
         <HelpCircle className="h-3.5 w-3.5" />
       </button>
-
-      {open && (
-        <div
-          role="dialog"
-          className="absolute left-0 top-full z-20 mt-2 w-80 rounded-md border border-zinc-200 bg-white p-3 shadow-md dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-            문서 타입
-          </div>
-          <dl className="space-y-2.5">
-            {DOC_TYPES.map(({ Icon, label, iconColor, description }) => (
-              <div key={label}>
-                <dt className="flex items-center gap-1.5 text-xs font-medium text-zinc-900 dark:text-zinc-100">
-                  <Icon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
-                  {label}
-                </dt>
-                <dd className="mt-0.5 pl-5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  {description}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      )}
-    </div>
+      {popoverContent && mounted && createPortal(popoverContent, document.body)}
+    </>
   );
 }

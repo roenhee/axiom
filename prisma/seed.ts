@@ -44,12 +44,12 @@ async function main() {
   );
 
   // 3. "개발자 가이드" 예약 폴더 — 모든 프로젝트가 가져야 함 (D-031). 기존 프로젝트엔 backfill.
-  const existingDevGuide = await db.folder.findFirst({
+  let devGuideFolder = await db.folder.findFirst({
     where: { projectId: sampleProject.id, isLocked: true },
     select: { id: true },
   });
-  if (!existingDevGuide) {
-    await db.folder.create({
+  if (!devGuideFolder) {
+    devGuideFolder = await db.folder.create({
       data: {
         projectId: sampleProject.id,
         parentId: null,
@@ -57,8 +57,53 @@ async function main() {
         order: 0,
         isLocked: true,
       },
+      select: { id: true },
     });
     console.log("✓ 개발자 가이드 폴더 backfill");
+  }
+
+  // 4. 샘플 프로젝트 한정: 개발자 가이드 안에 starter spec 1개 (없을 때만).
+  // 일반 새 프로젝트는 빈 폴더로 시작 — 샘플은 사용자가 "어떻게 채우는지" 보이도록 1개 시드.
+  const existingDevSpec = await db.spec.findFirst({
+    where: { folderId: devGuideFolder.id },
+    select: { id: true },
+  });
+  if (!existingDevSpec) {
+    const placeholderMarkdown = `# 프로젝트 안내
+
+이 문서는 Claude / Codex 같은 AI 에이전트가 프로젝트를 빠르게 이해하도록
+돕기 위해 작성합니다. Phase 5 의 Developer Export 시 자동으로 CLAUDE.md /
+AGENTS.md 의 prefix 로 들어갑니다.
+
+## 도메인 / 용어
+(여기 채우기)
+
+## 코딩 컨벤션
+(여기 채우기)
+
+## 자주 쓰이는 API
+(여기 채우기)
+
+## 주의 사항
+(여기 채우기)
+`;
+    const starterSpec = await db.spec.create({
+      data: {
+        projectId: sampleProject.id,
+        folderId: devGuideFolder.id,
+        title: "프로젝트 안내",
+        type: "Feature",
+      },
+      select: { id: true },
+    });
+    await db.revision.create({
+      data: {
+        specId: starterSpec.id,
+        markdown: placeholderMarkdown,
+        authorId: user.id,
+      },
+    });
+    console.log("✓ 샘플 개발자 가이드 starter spec 추가");
   }
 }
 
