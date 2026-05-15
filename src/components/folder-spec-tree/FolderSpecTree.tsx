@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -87,6 +87,13 @@ export function FolderSpecTree({
   folders,
   specs,
 }: Props) {
+  // dnd-kit 은 useDraggable/useDroppable 마다 자체 id 카운터를 증가시키는데,
+  // 이 카운터가 server-render 와 client-hydration 사이에 일치하지 않아
+  // aria-describedby 가 깨진다는 hydration mismatch 경고를 띄움.
+  // mount 후에만 트리를 렌더해서 회피 — SSR 단계엔 정적 로딩 표시만.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const pathname = usePathname();
 
   const selectedSpecId = useMemo(() => {
@@ -320,6 +327,19 @@ export function FolderSpecTree({
     draggedLabel =
       specs.find((s) => s.id === draggingId.slice(SPEC_PREFIX.length))?.title ??
       null;
+  }
+
+  if (!mounted) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            구조
+          </h2>
+        </div>
+        <div className="flex-1 px-3 py-2 text-xs text-zinc-400">로딩…</div>
+      </div>
+    );
   }
 
   return (
