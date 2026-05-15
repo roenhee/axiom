@@ -19,6 +19,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { createFolder } from "@/server/folders/create-folder";
 import { renameFolder } from "@/server/folders/rename-folder";
 import { deleteFolder } from "@/server/folders/delete-folder";
+import { renameSpec } from "@/server/specs/rename-spec";
+import { deleteSpec } from "@/server/specs/delete-spec";
 import { moveFolder } from "@/server/folders/move-folder";
 import { moveSpec } from "@/server/specs/move-spec";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -497,7 +499,10 @@ export function FolderSpecTree({
           hasSubSpecs={hasSubSpecs}
           isExpanded={isExpanded}
           isDropDisabled={descendantSpecIds.has(spec.id)}
+          isRenaming={renamingId === spec.id}
           onToggle={() => toggleExpand(spec.id)}
+          onStartRename={() => setRenamingId(spec.id)}
+          onFinishRename={() => setRenamingId(null)}
           addMenuItems={buildAddMenuItems({
             parentSpecId: spec.id,
             includeFolder: false,
@@ -727,7 +732,11 @@ function FolderRow({
       </button>
 
       {isRenaming ? (
-        <RenameInput folder={folder} onDone={onFinishRename} />
+        <RenameInput
+          initialValue={folder.name}
+          onSave={(name) => renameFolder({ id: folder.id, name })}
+          onDone={onFinishRename}
+        />
       ) : (
         <>
           <button
@@ -757,23 +766,31 @@ function FolderRow({
               }
               items={addMenuItems}
             />
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={onStartRename}
-              title="이름 변경"
-            >
-              ✎
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={handleDelete}
-              disabled={pending}
-              title="삭제"
-            >
-              ✕
-            </Button>
+            <AddMenu
+              align="right"
+              trigger={
+                <span
+                  className={buttonVariants({ size: "xs", variant: "ghost" })}
+                  title="더보기"
+                >
+                  ⋯
+                </span>
+              }
+              items={[
+                {
+                  kind: "item",
+                  label: "이름 변경",
+                  icon: "✎",
+                  onSelect: onStartRename,
+                },
+                {
+                  kind: "item",
+                  label: "삭제",
+                  icon: "🗑️",
+                  onSelect: handleDelete,
+                },
+              ]}
+            />
           </div>
         </>
       )}
@@ -793,7 +810,10 @@ interface SpecRowProps {
   hasSubSpecs: boolean;
   isExpanded: boolean;
   isDropDisabled: boolean;
+  isRenaming: boolean;
   onToggle: () => void;
+  onStartRename: () => void;
+  onFinishRename: () => void;
   /** + 메뉴 항목 — 5 SpecType 만, 폴더 없음. */
   addMenuItems: AddMenuEntry[];
 }
@@ -806,9 +826,13 @@ function SpecRow({
   hasSubSpecs,
   isExpanded,
   isDropDisabled,
+  isRenaming,
   onToggle,
+  onStartRename,
+  onFinishRename,
   addMenuItems,
 }: SpecRowProps) {
+  const [pending, startTransition] = useTransition();
   const {
     setNodeRef: setDragRef,
     attributes: dragAttrs,
@@ -820,13 +844,30 @@ function SpecRow({
   // Spec 도 droppable — 다른 Spec 을 드롭하면 sub-spec 으로.
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `${SPEC_PREFIX}${spec.id}`,
-    disabled: isDropDisabled,
+    disabled: isDropDisabled || isRenaming,
   });
 
   const setRef = (el: HTMLDivElement | null) => {
     setDragRef(el);
     setDropRef(el);
   };
+
+  async function handleDelete() {
+    if (
+      !window.confirm(
+        `"${spec.title}" Spec 을 삭제할까요? 연결된 Version / Revision / 관계 정보도 함께 삭제됩니다.`,
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await deleteSpec(spec.id);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "삭제 실패");
+      }
+    });
+  }
 
   return (
     <div
@@ -842,6 +883,7 @@ function SpecRow({
           : !isOver && "hover:bg-zinc-50 dark:hover:bg-zinc-900",
         isOver && !isDropDisabled && "bg-blue-50 dark:bg-blue-950/40",
         isDragging && "opacity-40",
+        pending && "opacity-50",
       )}
     >
       <button
@@ -853,50 +895,97 @@ function SpecRow({
       >
         {hasSubSpecs ? (isExpanded ? "▾" : "▸") : "·"}
       </button>
-      <button
-        type="button"
-        {...dragAttrs}
-        {...listeners}
-        className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
-        aria-label="드래그하여 이동"
-        title="드래그하여 이동"
-      >
-        ⠿
-      </button>
-      <span
-        className={cn(
-          "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-          TYPE_TONE[spec.type],
-        )}
-        title={spec.type}
-      >
-        {TYPE_SHORT[spec.type]}
-      </span>
-      <Link
-        href={`/projects/${projectSlug}/specs/${spec.id}`}
-        className={cn(
-          "flex-1 truncate",
-          isSelected
-            ? "font-medium text-zinc-900 dark:text-zinc-100"
-            : "text-zinc-700 dark:text-zinc-300",
-        )}
-      >
-        {spec.title}
-      </Link>
-      <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-        <AddMenu
-          align="right"
-          trigger={
-            <span
-              className={buttonVariants({ size: "xs", variant: "ghost" })}
-              title="이 Spec 의 하위 Spec 추가"
-            >
-              +
-            </span>
-          }
-          items={addMenuItems}
-        />
-      </div>
+
+      {isRenaming ? (
+        <>
+          <span
+            className={cn(
+              "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+              TYPE_TONE[spec.type],
+            )}
+            title={spec.type}
+          >
+            {TYPE_SHORT[spec.type]}
+          </span>
+          <RenameInput
+            initialValue={spec.title}
+            onSave={(title) => renameSpec({ id: spec.id, title })}
+            onDone={onFinishRename}
+          />
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            {...dragAttrs}
+            {...listeners}
+            className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+            aria-label="드래그하여 이동"
+            title="드래그하여 이동"
+          >
+            ⠿
+          </button>
+          <span
+            className={cn(
+              "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+              TYPE_TONE[spec.type],
+            )}
+            title={spec.type}
+          >
+            {TYPE_SHORT[spec.type]}
+          </span>
+          <Link
+            href={`/projects/${projectSlug}/specs/${spec.id}`}
+            className={cn(
+              "flex-1 truncate",
+              isSelected
+                ? "font-medium text-zinc-900 dark:text-zinc-100"
+                : "text-zinc-700 dark:text-zinc-300",
+            )}
+          >
+            {spec.title}
+          </Link>
+          <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+            <AddMenu
+              align="right"
+              trigger={
+                <span
+                  className={buttonVariants({ size: "xs", variant: "ghost" })}
+                  title="이 Spec 의 하위 Spec 추가"
+                >
+                  +
+                </span>
+              }
+              items={addMenuItems}
+            />
+            <AddMenu
+              align="right"
+              trigger={
+                <span
+                  className={buttonVariants({ size: "xs", variant: "ghost" })}
+                  title="더보기"
+                >
+                  ⋯
+                </span>
+              }
+              items={[
+                {
+                  kind: "item",
+                  label: "이름 변경",
+                  icon: "✎",
+                  onSelect: onStartRename,
+                },
+                {
+                  kind: "item",
+                  label: "삭제",
+                  icon: "🗑️",
+                  onSelect: handleDelete,
+                },
+              ]}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1046,27 +1135,34 @@ function NewSpecInput({
 // ============================================================
 
 function RenameInput({
-  folder,
+  initialValue,
+  onSave,
   onDone,
 }: {
-  folder: FolderNode;
+  initialValue: string;
+  onSave: (newValue: string) => Promise<void>;
   onDone: () => void;
 }) {
-  const [value, setValue] = useState(folder.name);
+  const [value, setValue] = useState(initialValue);
   const [pending, startTransition] = useTransition();
+  const submittedRef = useRef(false);
 
   function submit() {
-    const name = value.trim();
-    if (!name || name === folder.name) {
+    if (submittedRef.current) return;
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === initialValue) {
+      submittedRef.current = true;
       onDone();
       return;
     }
+    submittedRef.current = true;
     startTransition(async () => {
       try {
-        await renameFolder({ id: folder.id, name });
+        await onSave(trimmed);
         onDone();
       } catch (e) {
         window.alert(e instanceof Error ? e.message : "이름 변경 실패");
+        onDone();
       }
     });
   }
@@ -1079,7 +1175,10 @@ function RenameInput({
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") submit();
-        if (e.key === "Escape") onDone();
+        if (e.key === "Escape") {
+          submittedRef.current = true;
+          onDone();
+        }
       }}
       onBlur={submit}
       className="h-7 flex-1"
