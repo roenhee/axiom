@@ -398,7 +398,7 @@ export function FolderSpecTree({
           {renderChildren(null, 0)}
           {isEmpty && (
             <div className="px-4 py-6 text-center text-xs text-zinc-500">
-              아직 폴더/Spec 이 없어요. 아래 &ldquo;+ 추가&rdquo; 로 시작하세요.
+              아직 폴더/Spec 이 없어요. 아래 &ldquo;+ 만들기&rdquo; 로 시작하세요.
             </div>
           )}
           <div className="px-2 py-1.5">
@@ -406,7 +406,7 @@ export function FolderSpecTree({
               align="left"
               trigger={
                 <span className="flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300">
-                  + 추가
+                  + 만들기
                 </span>
               }
               items={[
