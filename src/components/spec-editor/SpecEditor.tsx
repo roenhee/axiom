@@ -109,11 +109,8 @@ export function SpecEditor({ specId, initialMarkdown }: Props) {
   }, []);
 
   return (
-    <div className="rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
-        <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          본문
-        </h2>
+    <div className="rounded-md border border-zinc-200 dark:border-zinc-800">
+      <div className="flex items-center justify-end border-b border-zinc-100 px-3 py-1 dark:border-zinc-900">
         <SaveStatus state={saveState} />
       </div>
       <EditorContent editor={editor} />

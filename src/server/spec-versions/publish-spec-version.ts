@@ -62,7 +62,6 @@ export async function publishSpecVersion(formData: FormData): Promise<void> {
   });
 
   revalidatePath(`/projects/${spec.project.slug}/specs/${specId}`);
-  revalidatePath(`/projects/${spec.project.slug}/specs/${specId}/versions`);
 }
 
 /** "v3" → 3. 파싱 실패 시 0. */

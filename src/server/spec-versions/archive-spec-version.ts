@@ -36,10 +36,4 @@ export async function archiveSpecVersion(id: string): Promise<void> {
   revalidatePath(
     `/projects/${version.spec.project.slug}/specs/${version.spec.id}`,
   );
-  revalidatePath(
-    `/projects/${version.spec.project.slug}/specs/${version.spec.id}/versions`,
-  );
-  revalidatePath(
-    `/projects/${version.spec.project.slug}/specs/${version.spec.id}/versions/${id}`,
-  );
 }
