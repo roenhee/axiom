@@ -21,12 +21,12 @@ import { renameFolder } from "@/server/folders/rename-folder";
 import { deleteFolder } from "@/server/folders/delete-folder";
 import { moveFolder } from "@/server/folders/move-folder";
 import { moveSpec } from "@/server/specs/move-spec";
-import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SpecType } from "@/generated/prisma/enums";
 import { AddMenu } from "./AddMenu";
+import { NewSpecDialog } from "./NewSpecDialog";
 
 export interface FolderNode {
   id: string;
@@ -97,7 +97,6 @@ export function FolderSpecTree({
   useEffect(() => setMounted(true), []);
 
   const pathname = usePathname();
-  const router = useRouter();
 
   const selectedSpecId = useMemo(() => {
     if (!pathname) return null;
@@ -187,6 +186,10 @@ export function FolderSpecTree({
   const [creating, setCreating] = useState<{ parentId: string | null } | null>(
     null,
   );
+  // 새 Spec 다이얼로그 — null 이면 닫힘, { folderId } 면 열림
+  const [newSpecDialog, setNewSpecDialog] = useState<{
+    folderId: string | null;
+  } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [movePending, startMoveTransition] = useTransition();
@@ -286,9 +289,7 @@ export function FolderSpecTree({
                   setCreating({ parentId: folder.id });
                 }}
                 onAddSpec={() => {
-                  router.push(
-                    `/projects/${projectSlug}/specs/new?folder=${folder.id}`,
-                  );
+                  setNewSpecDialog({ folderId: folder.id });
                 }}
                 projectSlug={projectSlug}
               />
@@ -378,8 +379,7 @@ export function FolderSpecTree({
               {
                 label: "Spec",
                 icon: "📄",
-                onSelect: () =>
-                  router.push(`/projects/${projectSlug}/specs/new`),
+                onSelect: () => setNewSpecDialog({ folderId: null }),
               },
             ]}
           />
@@ -418,8 +418,7 @@ export function FolderSpecTree({
                 {
                   label: "Spec",
                   icon: "📄",
-                  onSelect: () =>
-                    router.push(`/projects/${projectSlug}/specs/new`),
+                  onSelect: () => setNewSpecDialog({ folderId: null }),
                 },
               ]}
             />
@@ -434,6 +433,14 @@ export function FolderSpecTree({
           </div>
         ) : null}
       </DragOverlay>
+
+      <NewSpecDialog
+        open={newSpecDialog !== null}
+        onClose={() => setNewSpecDialog(null)}
+        projectId={projectId}
+        folders={folders}
+        preselectedFolderId={newSpecDialog?.folderId ?? null}
+      />
     </DndContext>
   );
 }

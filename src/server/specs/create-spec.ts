@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth/current-user";
@@ -8,10 +7,16 @@ import { SpecType } from "@/generated/prisma/enums";
 
 const VALID_TYPES = new Set<string>(Object.values(SpecType));
 
+export interface CreateSpecResult {
+  projectSlug: string;
+  specId: string;
+}
+
 /**
- * 새 Spec 생성. 성공 시 `/projects/<slug>/specs/<id>` 로 redirect.
+ * 새 Spec 생성. 성공 시 새 Spec 의 식별자/슬러그 반환 — 호출 측이 nav 결정.
+ * (이전엔 server-side redirect 였으나 1-o 에서 모달 호출이 가능하도록 변경.)
  */
-export async function createSpec(formData: FormData): Promise<void> {
+export async function createSpec(formData: FormData): Promise<CreateSpecResult> {
   const projectId = String(formData.get("projectId") ?? "");
   const title = String(formData.get("title") ?? "").trim();
   const type = String(formData.get("type") ?? "");
@@ -52,5 +57,5 @@ export async function createSpec(formData: FormData): Promise<void> {
   });
 
   revalidatePath(`/projects/${project.slug}`);
-  redirect(`/projects/${project.slug}/specs/${spec.id}`);
+  return { projectSlug: project.slug, specId: spec.id };
 }
