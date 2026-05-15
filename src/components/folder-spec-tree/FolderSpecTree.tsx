@@ -81,8 +81,7 @@ interface Props {
 
 const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
-const GAP_FOLDER_PREFIX = "gap-folder:";
-const GAP_SPEC_PREFIX = "gap-spec:";
+const GAP_PREFIX = "gap:";
 
 /**
  * collisionDetection — gap zone(좁은 droppable) 우선 매칭.
@@ -92,10 +91,9 @@ const GAP_SPEC_PREFIX = "gap-spec:";
 const collisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
   if (pointerCollisions.length > 0) {
-    const gapHit = pointerCollisions.find((c) => {
-      const id = String(c.id);
-      return id.startsWith(GAP_FOLDER_PREFIX) || id.startsWith(GAP_SPEC_PREFIX);
-    });
+    const gapHit = pointerCollisions.find((c) =>
+      String(c.id).startsWith(GAP_PREFIX),
+    );
     if (gapHit) return [gapHit];
     return pointerCollisions;
   }
@@ -406,51 +404,55 @@ export function FolderSpecTree({
     if (overId === activeId) return;
 
     // Gap zone (위계 정렬) drop 처리.
-    if (overId?.startsWith(GAP_FOLDER_PREFIX)) {
-      if (!activeId.startsWith(FOLDER_PREFIX)) return;
-      const folderId = activeId.slice(FOLDER_PREFIX.length);
-      const parts = overId.slice(GAP_FOLDER_PREFIX.length).split(":");
-      const newParentId = parts[0] === "_" ? null : parts[0];
-      const newOrder = parseInt(parts[1] ?? "0", 10);
-      if (newParentId && descendantFolderIds.has(newParentId)) return;
-      startMoveTransition(async () => {
-        try {
-          await moveFolder({ id: folderId, newParentId, newOrder });
-        } catch (err) {
-          window.alert(err instanceof Error ? err.message : "이동 실패");
-        }
-      });
-      return;
-    }
-    if (overId?.startsWith(GAP_SPEC_PREFIX)) {
-      if (!activeId.startsWith(SPEC_PREFIX)) return;
-      const specId = activeId.slice(SPEC_PREFIX.length);
-      const parts = overId.slice(GAP_SPEC_PREFIX.length).split(":");
+    if (overId?.startsWith(GAP_PREFIX)) {
+      const parts = overId.slice(GAP_PREFIX.length).split(":");
       const newFolderId = parts[0] === "_" ? null : parts[0];
       const newParentSpecId = parts[1] === "_" ? null : parts[1];
       const newOrder = parseInt(parts[2] ?? "0", 10);
-      if (newParentSpecId && descendantSpecIds.has(newParentSpecId)) return;
-      // 위계 검증 (D-035) — 부모 spec 의 type 보다 상위 타입은 자식 불가.
-      const active = specById.get(specId);
-      if (active && newParentSpecId) {
-        const parent = specById.get(newParentSpecId);
-        if (parent && !isChildTypeAllowed(parent.type, active.type)) {
-          window.alert(childTypeRejectionReason(parent.type, active.type));
-          return;
-        }
+
+      if (activeId.startsWith(FOLDER_PREFIX)) {
+        // 폴더는 folder/root 레벨에만 들어갈 수 있음 (Spec 안엔 불가).
+        if (newParentSpecId !== null) return;
+        const folderId = activeId.slice(FOLDER_PREFIX.length);
+        if (newFolderId && descendantFolderIds.has(newFolderId)) return;
+        startMoveTransition(async () => {
+          try {
+            await moveFolder({
+              id: folderId,
+              newParentId: newFolderId,
+              newOrder,
+            });
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : "이동 실패");
+          }
+        });
+        return;
       }
-      startMoveTransition(async () => {
-        try {
-          await moveSpec({
-            id: specId,
-            newFolderId,
-            newParentSpecId,
-            newOrder,
-          });
-        } catch (err) {
-          window.alert(err instanceof Error ? err.message : "이동 실패");
+      if (activeId.startsWith(SPEC_PREFIX)) {
+        const specId = activeId.slice(SPEC_PREFIX.length);
+        if (newParentSpecId && descendantSpecIds.has(newParentSpecId)) return;
+        const active = specById.get(specId);
+        if (active && newParentSpecId) {
+          const parent = specById.get(newParentSpecId);
+          if (parent && !isChildTypeAllowed(parent.type, active.type)) {
+            window.alert(childTypeRejectionReason(parent.type, active.type));
+            return;
+          }
         }
-      });
+        startMoveTransition(async () => {
+          try {
+            await moveSpec({
+              id: specId,
+              newFolderId,
+              newParentSpecId,
+              newOrder,
+            });
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : "이동 실패");
+          }
+        });
+        return;
+      }
       return;
     }
 
@@ -531,102 +533,122 @@ export function FolderSpecTree({
       creating.parentFolderId === parentFolderId &&
       creating.parentSpecId === null;
     const showGaps = draggingId !== null;
+
+    // 폴더 + spec 을 통합 order 로 정렬. locked 폴더는 항상 최상단.
+    type MergedItem =
+      | { kind: "folder"; folder: FolderNode }
+      | { kind: "spec"; spec: SpecNode };
+    const merged: MergedItem[] = [
+      ...folderChildren.map((f) => ({ kind: "folder" as const, folder: f })),
+      ...rootSpecChildren.map((s) => ({ kind: "spec" as const, spec: s })),
+    ];
+    merged.sort((a, b) => {
+      const aLocked = a.kind === "folder" && a.folder.isLocked;
+      const bLocked = b.kind === "folder" && b.folder.isLocked;
+      if (aLocked !== bLocked) return aLocked ? -1 : 1;
+      const aOrder = a.kind === "folder" ? a.folder.order : a.spec.order;
+      const bOrder = b.kind === "folder" ? b.folder.order : b.spec.order;
+      return aOrder - bOrder;
+    });
+
     return (
       <>
-        {folderChildren.map((folder, i) => {
-          const prev = folderChildren[i - 1];
+        {merged.map((item, i) => {
+          const prev = merged[i - 1];
+          const isLockedNow = item.kind === "folder" && item.folder.isLocked;
+          const prevLocked =
+            prev !== undefined && prev.kind === "folder" && prev.folder.isLocked;
           const showDividerBefore =
-            prev !== undefined && prev.isLocked && !folder.isLocked;
-          const isExpanded = expanded.has(folder.id);
-          const isCreatingInside =
-            (creating?.kind === "folder" && creating.parentFolderId === folder.id) ||
-            (creating?.kind === "spec" &&
-              creating.parentFolderId === folder.id &&
-              creating.parentSpecId === null);
-          const hasContent =
-            (folderChildrenMap.get(folder.id)?.length ?? 0) > 0 ||
-            (specsByFolderId.get(folder.id)?.length ?? 0) > 0 ||
-            isCreatingInside;
+            prev !== undefined && prevLocked && !isLockedNow;
+          // locked 위로는 drop 못 함 — 그 자리 gap 숨김.
+          const showGapBefore = showGaps && !isLockedNow;
+
+          const gapKey =
+            item.kind === "folder"
+              ? `gap-before-f-${item.folder.id}`
+              : `gap-before-s-${item.spec.id}`;
+          const itemKey =
+            item.kind === "folder"
+              ? `f-${item.folder.id}`
+              : `s-${item.spec.id}`;
+
           return (
-            <div key={`f-${folder.id}`}>
+            <Fragment key={itemKey}>
               {showDividerBefore && (
                 <div
+                  key={`div-${itemKey}`}
                   className="mx-3 my-1 border-t border-zinc-200 dark:border-zinc-800"
                   aria-hidden="true"
                 />
               )}
-              {showGaps && (
+              {showGapBefore && (
                 <GapZone
-                  kind="folder"
+                  key={gapKey}
                   parentFolderId={parentFolderId}
                   parentSpecId={null}
                   order={i}
                   depth={depth}
                 />
               )}
-              <FolderRow
-                folder={folder}
-                depth={depth}
-                hasContent={hasContent}
-                isExpanded={isExpanded}
-                isRenaming={renamingId === folder.id}
-                isDropDisabled={descendantFolderIds.has(folder.id)}
-                onToggle={() => toggleExpand(folder.id)}
-                onStartRename={() => setRenamingId(folder.id)}
-                onFinishRename={() => setRenamingId(null)}
-                addMenuItems={buildAddMenuItems({
-                  parentFolderId: folder.id,
-                  includeFolder: true,
-                })}
-                projectSlug={projectSlug}
-              />
-              {isExpanded && (
-                <>
-                  {renderFolderContents(folder.id, depth + 1)}
-                  {creating?.kind === "folder" &&
-                    creating.parentFolderId === folder.id && (
-                      <NewFolderInput
-                        projectId={projectId}
-                        parentId={folder.id}
-                        depth={depth + 1}
-                        onDone={() => setCreating(null)}
-                      />
-                    )}
-                </>
-              )}
-            </div>
+              {item.kind === "folder"
+                ? (() => {
+                    const folder = item.folder;
+                    const isExpanded = expanded.has(folder.id);
+                    const isCreatingInside =
+                      (creating?.kind === "folder" &&
+                        creating.parentFolderId === folder.id) ||
+                      (creating?.kind === "spec" &&
+                        creating.parentFolderId === folder.id &&
+                        creating.parentSpecId === null);
+                    const hasContent =
+                      (folderChildrenMap.get(folder.id)?.length ?? 0) > 0 ||
+                      (specsByFolderId.get(folder.id)?.length ?? 0) > 0 ||
+                      isCreatingInside;
+                    return (
+                      <div>
+                        <FolderRow
+                          folder={folder}
+                          depth={depth}
+                          hasContent={hasContent}
+                          isExpanded={isExpanded}
+                          isRenaming={renamingId === folder.id}
+                          isDropDisabled={descendantFolderIds.has(folder.id)}
+                          onToggle={() => toggleExpand(folder.id)}
+                          onStartRename={() => setRenamingId(folder.id)}
+                          onFinishRename={() => setRenamingId(null)}
+                          addMenuItems={buildAddMenuItems({
+                            parentFolderId: folder.id,
+                            includeFolder: true,
+                          })}
+                          projectSlug={projectSlug}
+                        />
+                        {isExpanded && (
+                          <>
+                            {renderFolderContents(folder.id, depth + 1)}
+                            {creating?.kind === "folder" &&
+                              creating.parentFolderId === folder.id && (
+                                <NewFolderInput
+                                  projectId={projectId}
+                                  parentId={folder.id}
+                                  depth={depth + 1}
+                                  onDone={() => setCreating(null)}
+                                />
+                              )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()
+                : renderSpecTree(item.spec, depth)}
+            </Fragment>
           );
         })}
-        {/* 폴더 list 끝에도 폴더 reorder 용 gap */}
-        {showGaps && folderChildren.length > 0 && (
+        {/* 끝에도 gap zone */}
+        {showGaps && merged.length > 0 && (
           <GapZone
-            kind="folder"
             parentFolderId={parentFolderId}
             parentSpecId={null}
-            order={folderChildren.length}
-            depth={depth}
-          />
-        )}
-        {rootSpecChildren.map((spec, i) => (
-          <Fragment key={`s-${spec.id}`}>
-            {showGaps && (
-              <GapZone
-                kind="spec"
-                parentFolderId={parentFolderId}
-                parentSpecId={null}
-                order={i}
-                depth={depth}
-              />
-            )}
-            {renderSpecTree(spec, depth)}
-          </Fragment>
-        ))}
-        {showGaps && rootSpecChildren.length > 0 && (
-          <GapZone
-            kind="spec"
-            parentFolderId={parentFolderId}
-            parentSpecId={null}
-            order={rootSpecChildren.length}
+            order={merged.length}
             depth={depth}
           />
         )}
@@ -677,7 +699,6 @@ export function FolderSpecTree({
               <Fragment key={`s-${child.id}`}>
                 {draggingId !== null && (
                   <GapZone
-                    kind="spec"
                     parentFolderId={null}
                     parentSpecId={spec.id}
                     order={i}
@@ -689,7 +710,6 @@ export function FolderSpecTree({
             ))}
             {draggingId !== null && subSpecs.length > 0 && (
               <GapZone
-                kind="spec"
                 parentFolderId={null}
                 parentSpecId={spec.id}
                 order={subSpecs.length}
@@ -1404,25 +1424,20 @@ function LeafDot() {
 // ============================================================
 
 interface GapZoneProps {
-  kind: "folder" | "spec";
   parentFolderId: string | null;
   parentSpecId: string | null;
-  /** 같은 부모 안 형제들 사이의 삽입 위치 (0-indexed). */
+  /** 같은 부모 안 형제(folder+spec 통합) 사이의 삽입 위치 (0-indexed). */
   order: number;
   depth: number;
 }
 
 function GapZone({
-  kind,
   parentFolderId,
   parentSpecId,
   order,
   depth,
 }: GapZoneProps) {
-  const id =
-    kind === "folder"
-      ? `${GAP_FOLDER_PREFIX}${parentFolderId ?? "_"}:${order}`
-      : `${GAP_SPEC_PREFIX}${parentFolderId ?? "_"}:${parentSpecId ?? "_"}:${order}`;
+  const id = `${GAP_PREFIX}${parentFolderId ?? "_"}:${parentSpecId ?? "_"}:${order}`;
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div

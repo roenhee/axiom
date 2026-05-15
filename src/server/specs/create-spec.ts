@@ -81,11 +81,28 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
       });
 
   // 새 spec 의 order = 같은 부모 안 형제들 max order + 1 (끝에 추가).
-  const maxOrder = await db.spec.aggregate({
-    where: { projectId, folderId, parentSpecId },
-    _max: { order: true },
-  });
-  const nextOrder = (maxOrder._max.order ?? -1) + 1;
+  // folder/root 레벨이면 folder + spec 통합 max, sub-spec 레벨이면 spec 만.
+  let nextOrder: number;
+  if (parentSpecId !== null) {
+    const maxSpec = await db.spec.aggregate({
+      where: { projectId, parentSpecId },
+      _max: { order: true },
+    });
+    nextOrder = (maxSpec._max.order ?? -1) + 1;
+  } else {
+    const [maxFolder, maxSpec] = await Promise.all([
+      db.folder.aggregate({
+        where: { projectId, parentId: folderId },
+        _max: { order: true },
+      }),
+      db.spec.aggregate({
+        where: { projectId, folderId, parentSpecId: null },
+        _max: { order: true },
+      }),
+    ]);
+    nextOrder =
+      Math.max(maxFolder._max.order ?? -1, maxSpec._max.order ?? -1) + 1;
+  }
 
   const spec = await db.spec.create({
     data: {

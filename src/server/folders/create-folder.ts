@@ -38,11 +38,23 @@ export async function createFolder(args: {
     ? trimmed
     : await generateDefaultFolderName(args.projectId, args.parentId);
 
-  const maxOrder = await db.folder.aggregate({
-    where: { projectId: args.projectId, parentId: args.parentId },
-    _max: { order: true },
-  });
-  const nextOrder = (maxOrder._max.order ?? -1) + 1;
+  // 끝에 추가 — folder + spec 통합 max + 1 (같은 부모 안에서 폴더/spec 순서 공유).
+  const [maxFolder, maxSpec] = await Promise.all([
+    db.folder.aggregate({
+      where: { projectId: args.projectId, parentId: args.parentId },
+      _max: { order: true },
+    }),
+    db.spec.aggregate({
+      where: {
+        projectId: args.projectId,
+        folderId: args.parentId,
+        parentSpecId: null,
+      },
+      _max: { order: true },
+    }),
+  ]);
+  const nextOrder =
+    Math.max(maxFolder._max.order ?? -1, maxSpec._max.order ?? -1) + 1;
 
   const folder = await db.folder.create({
     data: {

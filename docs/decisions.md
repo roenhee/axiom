@@ -494,6 +494,46 @@ Phase 1-z.
 
 ---
 
+## 2026-05-15 — 폴더/Spec 통합 순서 공간
+
+### D-036. 같은 부모 안 폴더/Spec 이 order 공간을 공유
+
+이전: folder.order 와 spec.order 가 분리된 namespace — UI 도 folders 먼저, specs
+나중에 렌더. 사용자가 "spec 이 folder 위에 와도 된다" 요청.
+
+이후: 같은 부모 (folder/root 레벨) 안에서 folder/spec 형제 모두 같은 order 정수
+공간에 들어감. reorder transaction 이 양쪽 테이블을 함께 0..N 으로 renumber.
+
+**룰**:
+- folder/root 레벨 reorder: folder + spec 통합. locked 폴더는 항상 최상단 유지
+  (앞쪽 K 개 자리 고정).
+- sub-spec 레벨 reorder: spec sibling 만 (spec 안엔 folder 없음).
+- 신규 생성 (createFolder / createSpec) 시 order = 같은 부모 형제(folder+spec
+  통합) max + 1.
+
+**구현**:
+- src/server/folders/move-folder.ts: newOrder 지정 시 폴더+spec 통합 sibling
+  list 만들어 renumber. locked 자리 제외하고 clamp.
+- src/server/specs/move-spec.ts: 동일 로직. parentSpecId 가 있으면 sub-spec
+  레벨이라 spec 만, 없으면 folder/root 레벨이라 통합.
+- src/server/folders/create-folder.ts / src/server/specs/create-spec.ts:
+  nextOrder = max(folder.order, spec.order) + 1.
+- src/components/folder-spec-tree/FolderSpecTree.tsx:
+  · renderFolderContents 가 folderChildren / rootSpecChildren 을 merged
+    array 로 정렬 후 한 loop 으로 렌더 (locked 먼저, 그 다음 order asc).
+  · GapZone 의 kind 구분 제거 — 통합 id 형식 `gap:<folderId|_>:<parentSpecId|_>:<order>`.
+  · handleDragEnd 의 gap drop 분기도 단일 GAP_PREFIX 로 단순화.
+- 기존 데이터: 마이그레이션 없이 자연 호환. 모두 order=0 인 상태는 stable
+  sort 로 folders 먼저 → 이전 동작 유지. 사용자가 reorder 하면 unique order
+  배치 시작.
+
+**트레이드오프**: server reorder 로직이 좀 더 복잡 (두 테이블 동시 transaction).
+사용자 입장에선 UX 자연스러움 — folder 와 spec 위치를 자유롭게 섞을 수 있음.
+
+**관련**: D-029 / D-034 와 함께 트리 자유도 결정 묶음. Phase 1-aa.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

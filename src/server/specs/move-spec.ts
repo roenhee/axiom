@@ -8,19 +8,21 @@ import {
   isChildTypeAllowed,
 } from "@/lib/spec-type-hierarchy";
 
+type SiblingItem =
+  | { kind: "folder"; id: string; order: number; isLocked: boolean }
+  | { kind: "spec"; id: string; order: number };
+
 /**
- * Spec 의 위치/순서 변경. target 종류에 따라 두 가지 사용:
- * - 폴더 / 루트로 이동: { newFolderId: <id|null>, newParentSpecId: null }
- * - 다른 Spec 의 하위로 이동: { newParentSpecId: <id>, newFolderId 는 자유 }
- *
- * newOrder 지정 시 같은 부모 안 형제들 0..N 으로 재정렬 (한 트랜잭션).
- * 미지정 시 새 부모의 끝 (max + 1) 에 추가.
+ * Spec 의 위치/순서 변경.
  *
  * 트리 표시 규칙: parentSpecId 가 있으면 그 Spec 밑에 표시, 없으면 folderId 따라 폴더/루트.
  *
- * 거부 케이스:
- * - 자기 자신 / 자기 후손을 부모 Spec 으로 (사이클)
- * - 다른 프로젝트의 폴더/Spec 으로 이동
+ * newOrder 미지정: 끝에 추가 (folder/root 레벨이면 folder + spec 통합 max + 1).
+ * newOrder 지정: 같은 부모 안 형제 0..N 으로 재정렬.
+ *   - folder/root 레벨(parentSpecId null): 폴더 + spec 형제 통합 재정렬 (D-036).
+ *   - sub-spec 레벨: 동일 부모 spec 의 sub-spec 만 재정렬.
+ *
+ * 거부 케이스: 자기 자신/후손 / 다른 프로젝트 / 위계 위배 (D-035).
  */
 export async function moveSpec(args: {
   id: string;
@@ -72,7 +74,7 @@ export async function moveSpec(args: {
     if (!isChildTypeAllowed(parent.type, spec.type)) {
       throw new Error(childTypeRejectionReason(parent.type, spec.type));
     }
-    // 사이클 검사 — 새 부모의 조상 사슬에 args.id 가 있으면 거부.
+    // 사이클 검사
     let cursor: string | null = parent.parentSpecId;
     const visited = new Set<string>();
     while (cursor) {
@@ -90,7 +92,6 @@ export async function moveSpec(args: {
     }
   }
 
-  // 새 부모의 최종 식별자 (호출 측이 한쪽만 지정하면 다른 쪽은 기존값 유지).
   const targetFolderId =
     args.newFolderId !== undefined ? args.newFolderId : spec.folderId;
   const targetParentSpecId =
@@ -98,20 +99,40 @@ export async function moveSpec(args: {
 
   const isSameParent =
     targetFolderId === spec.folderId && targetParentSpecId === spec.parentSpecId;
-
   if (isSameParent && args.newOrder === undefined) return;
 
   if (args.newOrder === undefined) {
     // 끝에 추가.
-    const maxOrder = await db.spec.aggregate({
-      where: {
-        projectId: spec.projectId,
-        folderId: targetFolderId,
-        parentSpecId: targetParentSpecId,
-      },
-      _max: { order: true },
-    });
-    const nextOrder = (maxOrder._max.order ?? -1) + 1;
+    let nextOrder: number;
+    if (targetParentSpecId !== null) {
+      // sub-spec 레벨: spec siblings 만.
+      const maxSpec = await db.spec.aggregate({
+        where: {
+          projectId: spec.projectId,
+          parentSpecId: targetParentSpecId,
+        },
+        _max: { order: true },
+      });
+      nextOrder = (maxSpec._max.order ?? -1) + 1;
+    } else {
+      // folder/root 레벨: folder + spec 통합 max + 1.
+      const [maxFolder, maxSpec] = await Promise.all([
+        db.folder.aggregate({
+          where: { projectId: spec.projectId, parentId: targetFolderId },
+          _max: { order: true },
+        }),
+        db.spec.aggregate({
+          where: {
+            projectId: spec.projectId,
+            folderId: targetFolderId,
+            parentSpecId: null,
+          },
+          _max: { order: true },
+        }),
+      ]);
+      nextOrder =
+        Math.max(maxFolder._max.order ?? -1, maxSpec._max.order ?? -1) + 1;
+    }
 
     await db.spec.update({
       where: { id: args.id },
@@ -122,7 +143,6 @@ export async function moveSpec(args: {
       },
     });
   } else {
-    // 새 위치 (newOrder) 에 삽입 + 같은 부모 안 모든 형제 재정렬.
     await db.$transaction(async (tx) => {
       await tx.spec.update({
         where: { id: args.id },
@@ -132,30 +152,110 @@ export async function moveSpec(args: {
         },
       });
 
-      const others = await tx.spec.findMany({
-        where: {
-          projectId: spec.projectId,
-          folderId: targetFolderId,
-          parentSpecId: targetParentSpecId,
-          id: { not: args.id },
-        },
-        orderBy: [{ order: "asc" }, { title: "asc" }],
-        select: { id: true },
-      });
-
-      const clampedOrder = Math.max(0, Math.min(args.newOrder!, others.length));
-      const final: { id: string }[] = [];
-      for (let i = 0; i < others.length; i++) {
-        if (i === clampedOrder) final.push({ id: args.id });
-        final.push(others[i]);
-      }
-      if (clampedOrder >= others.length) final.push({ id: args.id });
-
-      for (let i = 0; i < final.length; i++) {
-        await tx.spec.update({
-          where: { id: final[i].id },
-          data: { order: i },
+      if (targetParentSpecId !== null) {
+        // sub-spec 레벨: spec sibling 만 재정렬.
+        const others = await tx.spec.findMany({
+          where: {
+            projectId: spec.projectId,
+            parentSpecId: targetParentSpecId,
+            id: { not: args.id },
+          },
+          orderBy: [{ order: "asc" }, { title: "asc" }],
+          select: { id: true },
         });
+        const clamped = Math.max(
+          0,
+          Math.min(args.newOrder!, others.length),
+        );
+        const final: { id: string }[] = [];
+        for (let i = 0; i < others.length; i++) {
+          if (i === clamped) final.push({ id: args.id });
+          final.push(others[i]);
+        }
+        if (clamped >= others.length) final.push({ id: args.id });
+
+        for (let i = 0; i < final.length; i++) {
+          await tx.spec.update({
+            where: { id: final[i].id },
+            data: { order: i },
+          });
+        }
+      } else {
+        // folder/root 레벨: folder + spec 통합 재정렬.
+        const [folders, specs] = await Promise.all([
+          tx.folder.findMany({
+            where: {
+              projectId: spec.projectId,
+              parentId: targetFolderId,
+            },
+            orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+            select: { id: true, order: true, isLocked: true },
+          }),
+          tx.spec.findMany({
+            where: {
+              projectId: spec.projectId,
+              folderId: targetFolderId,
+              parentSpecId: null,
+              id: { not: args.id },
+            },
+            orderBy: [{ order: "asc" }, { title: "asc" }],
+            select: { id: true, order: true },
+          }),
+        ]);
+
+        const others: SiblingItem[] = [
+          ...folders.map((f) => ({
+            kind: "folder" as const,
+            id: f.id,
+            order: f.order,
+            isLocked: f.isLocked,
+          })),
+          ...specs.map((s) => ({
+            kind: "spec" as const,
+            id: s.id,
+            order: s.order,
+          })),
+        ];
+        others.sort((a, b) => {
+          const aLocked = a.kind === "folder" && a.isLocked;
+          const bLocked = b.kind === "folder" && b.isLocked;
+          if (aLocked !== bLocked) return aLocked ? -1 : 1;
+          return a.order - b.order;
+        });
+
+        const lockedCount = others.filter(
+          (o) => o.kind === "folder" && o.isLocked,
+        ).length;
+        const clamped = Math.max(
+          lockedCount,
+          Math.min(args.newOrder!, others.length),
+        );
+
+        const final: SiblingItem[] = [];
+        for (let i = 0; i < others.length; i++) {
+          if (i === clamped) {
+            final.push({ kind: "spec", id: args.id, order: 0 });
+          }
+          final.push(others[i]);
+        }
+        if (clamped >= others.length) {
+          final.push({ kind: "spec", id: args.id, order: 0 });
+        }
+
+        for (let i = 0; i < final.length; i++) {
+          const item = final[i];
+          if (item.kind === "folder") {
+            await tx.folder.update({
+              where: { id: item.id },
+              data: { order: i },
+            });
+          } else {
+            await tx.spec.update({
+              where: { id: item.id },
+              data: { order: i },
+            });
+          }
+        }
       }
     });
   }
