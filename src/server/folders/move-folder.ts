@@ -29,11 +29,15 @@ export async function moveFolder(args: {
       id: true,
       projectId: true,
       parentId: true,
+      isLocked: true,
       project: { select: { slug: true, members: { where: { userId } } } },
     },
   });
   if (!folder) throw new Error("폴더 없음.");
   if (folder.project.members.length === 0) throw new Error("권한 없음.");
+  if (folder.isLocked) {
+    throw new Error("시스템 예약 폴더 — 이동할 수 없습니다.");
+  }
 
   // 이미 그 부모 밑에 있다면 no-op.
   if (folder.parentId === args.newParentId) return;

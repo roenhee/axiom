@@ -42,6 +42,24 @@ async function main() {
   console.log(
     `✓ Sample project 준비됨: ${sampleProject.name} (slug=${sampleProject.slug})`,
   );
+
+  // 3. "개발자 가이드" 예약 폴더 — 모든 프로젝트가 가져야 함 (D-031). 기존 프로젝트엔 backfill.
+  const existingDevGuide = await db.folder.findFirst({
+    where: { projectId: sampleProject.id, isLocked: true },
+    select: { id: true },
+  });
+  if (!existingDevGuide) {
+    await db.folder.create({
+      data: {
+        projectId: sampleProject.id,
+        parentId: null,
+        name: "개발자 가이드",
+        order: 0,
+        isLocked: true,
+      },
+    });
+    console.log("✓ 개발자 가이드 폴더 backfill");
+  }
 }
 
 main()

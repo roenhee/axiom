@@ -100,6 +100,8 @@ model Folder {
   parentId  String?  @map("parent_id")
   name      String
   order     Int      @default(0)
+  // 시스템 예약 폴더 — 삭제/이름변경/이동 차단. 새 프로젝트 자동 생성 "개발자 가이드".
+  isLocked  Boolean  @default(false) @map("is_locked")
   createdAt DateTime @default(now()) @map("created_at")
 
   project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)

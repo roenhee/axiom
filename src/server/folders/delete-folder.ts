@@ -14,12 +14,16 @@ export async function deleteFolder(args: { id: string }): Promise<void> {
     where: { id: args.id },
     select: {
       projectId: true,
+      isLocked: true,
       _count: { select: { children: true, specs: true } },
       project: { select: { slug: true, members: { where: { userId } } } },
     },
   });
   if (!folder) throw new Error("폴더 없음.");
   if (folder.project.members.length === 0) throw new Error("권한 없음.");
+  if (folder.isLocked) {
+    throw new Error("시스템 예약 폴더 — 삭제할 수 없습니다.");
+  }
 
   if (folder._count.children > 0) {
     throw new Error("하위 폴더가 있어 삭제 불가. 먼저 하위를 비우세요.");

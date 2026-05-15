@@ -51,6 +51,7 @@ export interface FolderNode {
   name: string;
   parentId: string | null;
   order: number;
+  isLocked: boolean;
 }
 
 export interface SpecNode {
@@ -710,7 +711,10 @@ function FolderRow({
     listeners,
     isDragging,
     transform,
-  } = useDraggable({ id: `${FOLDER_PREFIX}${folder.id}` });
+  } = useDraggable({
+    id: `${FOLDER_PREFIX}${folder.id}`,
+    disabled: folder.isLocked,
+  });
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `${FOLDER_PREFIX}${folder.id}`,
     disabled: isDropDisabled || isRenaming,
@@ -764,16 +768,25 @@ function FolderRow({
         />
       ) : (
         <>
-          <button
-            type="button"
-            {...dragAttrs}
-            {...listeners}
-            className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
-            aria-label="드래그하여 이동"
-            title="드래그하여 이동"
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
+          {folder.isLocked ? (
+            <span
+              className="select-none text-zinc-200 dark:text-zinc-700"
+              title="시스템 예약 폴더 — 이동 불가"
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </span>
+          ) : (
+            <button
+              type="button"
+              {...dragAttrs}
+              {...listeners}
+              className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+              aria-label="드래그하여 이동"
+              title="드래그하여 이동"
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </button>
+          )}
           <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
           <span className="flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">
             {folder.name}
@@ -791,31 +804,33 @@ function FolderRow({
               }
               items={addMenuItems}
             />
-            <AddMenu
-              align="right"
-              trigger={
-                <span
-                  className={buttonVariants({ size: "xs", variant: "ghost" })}
-                  title="더보기"
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5" />
-                </span>
-              }
-              items={[
-                {
-                  kind: "item",
-                  label: "이름 변경",
-                  icon: <Pencil className="h-3.5 w-3.5" />,
-                  onSelect: onStartRename,
-                },
-                {
-                  kind: "item",
-                  label: "삭제",
-                  icon: <Trash2 className="h-3.5 w-3.5" />,
-                  onSelect: handleDelete,
-                },
-              ]}
-            />
+            {!folder.isLocked && (
+              <AddMenu
+                align="right"
+                trigger={
+                  <span
+                    className={buttonVariants({ size: "xs", variant: "ghost" })}
+                    title="더보기"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </span>
+                }
+                items={[
+                  {
+                    kind: "item",
+                    label: "이름 변경",
+                    icon: <Pencil className="h-3.5 w-3.5" />,
+                    onSelect: onStartRename,
+                  },
+                  {
+                    kind: "item",
+                    label: "삭제",
+                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                    onSelect: handleDelete,
+                  },
+                ]}
+              />
+            )}
           </div>
         </>
       )}

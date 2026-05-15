@@ -49,6 +49,17 @@ export async function createProject(formData: FormData): Promise<void> {
           level: "ProjectOwner",
         },
       },
+      // D-031 — 모든 프로젝트에 "개발자 가이드" 예약 폴더 자동 생성.
+      // 안에 들어가는 spec 들은 Phase 5 (PRD 16.7) Export 시 CLAUDE.md / AGENTS.md
+      // prefix 로 조립되는 자리. isLocked 라 삭제/이름변경/이동 불가.
+      folders: {
+        create: {
+          name: "개발자 가이드",
+          parentId: null,
+          order: 0,
+          isLocked: true,
+        },
+      },
     },
     select: { slug: true },
   });

@@ -8,6 +8,7 @@ export interface FolderNode {
   name: string;
   parentId: string | null;
   order: number;
+  isLocked: boolean;
 }
 
 /**
@@ -32,6 +33,7 @@ export async function listFolders(projectId: string): Promise<FolderNode[]> {
       name: true,
       parentId: true,
       order: true,
+      isLocked: true,
     },
   });
   return folders;

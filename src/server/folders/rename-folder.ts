@@ -19,11 +19,15 @@ export async function renameFolder(args: {
     where: { id: args.id },
     select: {
       projectId: true,
+      isLocked: true,
       project: { select: { slug: true, members: { where: { userId } } } },
     },
   });
   if (!folder) throw new Error("폴더 없음.");
   if (folder.project.members.length === 0) throw new Error("권한 없음.");
+  if (folder.isLocked) {
+    throw new Error("시스템 예약 폴더 — 이름을 바꿀 수 없습니다.");
+  }
 
   await db.folder.update({
     where: { id: args.id },

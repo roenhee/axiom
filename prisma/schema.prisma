@@ -56,12 +56,15 @@ model Project {
 }
 
 /// 자유 탐색 폴더 (PRD 6.2). 구조화 의미 X.
+/// isLocked = true 인 폴더는 시스템 예약 폴더 — 삭제/이름변경/이동 모두 차단.
+/// 현재 용도: 새 프로젝트 생성 시 자동 생기는 "개발자 가이드" 폴더 (D-031).
 model Folder {
   id        String   @id @default(cuid())
   projectId String   @map("project_id")
   parentId  String?  @map("parent_id")
   name      String
   order     Int      @default(0)
+  isLocked  Boolean  @default(false) @map("is_locked")
   createdAt DateTime @default(now()) @map("created_at")
 
   project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
