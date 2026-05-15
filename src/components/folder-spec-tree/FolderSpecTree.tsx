@@ -40,6 +40,7 @@ export interface SpecNode {
   title: string;
   type: SpecType;
   folderId: string | null;
+  parentSpecId: string | null;
 }
 
 interface Props {
@@ -118,12 +119,29 @@ export function FolderSpecTree({
     return map;
   }, [folders]);
 
+  // parentSpecId 없는 spec 만 folderId 로 그룹 (트리에서 폴더 안에 직접 표시).
   const specsByFolderId = useMemo(() => {
     const map = new Map<string | null, SpecNode[]>();
     for (const s of specs) {
+      if (s.parentSpecId !== null) continue;
       const arr = map.get(s.folderId) ?? [];
       arr.push(s);
       map.set(s.folderId, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return map;
+  }, [specs]);
+
+  // parentSpecId 있는 spec 을 부모 spec 으로 그룹 (트리 nesting).
+  const specsByParentSpecId = useMemo(() => {
+    const map = new Map<string, SpecNode[]>();
+    for (const s of specs) {
+      if (s.parentSpecId === null) continue;
+      const arr = map.get(s.parentSpecId) ?? [];
+      arr.push(s);
+      map.set(s.parentSpecId, arr);
     }
     for (const arr of map.values()) {
       arr.sort((a, b) => a.title.localeCompare(b.title));
@@ -136,21 +154,39 @@ export function FolderSpecTree({
     [folders],
   );
 
-  // 선택된 spec 의 모든 조상 폴더 id (자동 펼침용)
+  const specById = useMemo(
+    () => new Map(specs.map((s) => [s.id, s])),
+    [specs],
+  );
+
+  // 선택된 spec 의 모든 조상 폴더/Spec id (자동 펼침용).
   const ancestorIds = useMemo(() => {
     const set = new Set<string>();
     if (!selectedSpecId) return set;
     const spec = specs.find((s) => s.id === selectedSpecId);
-    if (!spec?.folderId) return set;
-    let cursor: string | null = spec.folderId;
-    const visited = new Set<string>();
-    while (cursor && !visited.has(cursor)) {
-      set.add(cursor);
-      visited.add(cursor);
-      cursor = folderById.get(cursor)?.parentId ?? null;
+    if (!spec) return set;
+
+    // Spec 조상 사슬
+    let specCursor: string | null = spec.parentSpecId;
+    const specVisited = new Set<string>();
+    while (specCursor && !specVisited.has(specCursor)) {
+      set.add(specCursor);
+      specVisited.add(specCursor);
+      specCursor = specById.get(specCursor)?.parentSpecId ?? null;
+    }
+
+    // 루트 spec 의 folder 조상 사슬
+    const rootSpec = spec.parentSpecId ? specById.get([...specVisited].pop()!) : spec;
+    const startFolder = rootSpec?.folderId ?? null;
+    let folderCursor: string | null = startFolder;
+    const folderVisited = new Set<string>();
+    while (folderCursor && !folderVisited.has(folderCursor)) {
+      set.add(folderCursor);
+      folderVisited.add(folderCursor);
+      folderCursor = folderById.get(folderCursor)?.parentId ?? null;
     }
     return set;
-  }, [selectedSpecId, specs, folderById]);
+  }, [selectedSpecId, specs, folderById, specById]);
 
   // 수동 펼침 / 접힘 — ancestorIds 와 머지
   const [manualToggled, setManualToggled] = useState<Map<string, boolean>>(
@@ -186,14 +222,17 @@ export function FolderSpecTree({
   const [creating, setCreating] = useState<{ parentId: string | null } | null>(
     null,
   );
-  // 새 Spec 다이얼로그 — null 이면 닫힘, { folderId } 면 열림
+  // 새 Spec 다이얼로그 — null 이면 닫힘.
+  // folderId 또는 parentSpecId 중 하나로 위치 pre-select.
   const [newSpecDialog, setNewSpecDialog] = useState<{
-    folderId: string | null;
+    folderId?: string | null;
+    parentSpecId?: string | null;
   } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [movePending, startMoveTransition] = useTransition();
 
+  /** 드래그 중인 폴더의 후손 폴더 id (drop 거부용). spec drag 시엔 비어있음. */
   const descendantFolderIds = useMemo(() => {
     if (!draggingId || !draggingId.startsWith(FOLDER_PREFIX))
       return new Set<string>();
@@ -209,6 +248,23 @@ export function FolderSpecTree({
     }
     return set;
   }, [draggingId, folderChildrenMap]);
+
+  /** 드래그 중인 spec 의 후손 spec id (sub-spec 자기 자신/후손 위로 drop 거부용). folder drag 시엔 비어있음. */
+  const descendantSpecIds = useMemo(() => {
+    if (!draggingId || !draggingId.startsWith(SPEC_PREFIX))
+      return new Set<string>();
+    const id = draggingId.slice(SPEC_PREFIX.length);
+    const set = new Set<string>([id]);
+    const stack = [id];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const child of specsByParentSpecId.get(cur) ?? []) {
+        set.add(child.id);
+        stack.push(child.id);
+      }
+    }
+    return set;
+  }, [draggingId, specsByParentSpecId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -226,35 +282,60 @@ export function FolderSpecTree({
     if (!overId) return;
     if (overId === activeId) return;
 
-    let newParentId: string | null;
+    // drop target 종류 — 폴더 / Spec / 루트
+    let targetFolderId: string | null = null;
+    let targetSpecId: string | null = null;
     if (overId === ROOT_DROP_ID) {
-      newParentId = null;
+      // 둘 다 null — 루트로
     } else if (overId.startsWith(FOLDER_PREFIX)) {
-      newParentId = overId.slice(FOLDER_PREFIX.length);
+      targetFolderId = overId.slice(FOLDER_PREFIX.length);
+    } else if (overId.startsWith(SPEC_PREFIX)) {
+      targetSpecId = overId.slice(SPEC_PREFIX.length);
     } else {
-      return; // spec 위로 drop 은 무시
+      return;
     }
 
     if (activeId.startsWith(FOLDER_PREFIX)) {
+      // 폴더 → ? Folder/Root 만 허용 (Spec 위로 폴더 drop 금지)
+      if (targetSpecId !== null) return;
       const id = activeId.slice(FOLDER_PREFIX.length);
-      // 자기 자신/후손으로 이동 금지
-      if (newParentId && descendantFolderIds.has(newParentId)) return;
+      if (targetFolderId && descendantFolderIds.has(targetFolderId)) return;
       const folder = folderById.get(id);
-      if (!folder || folder.parentId === newParentId) return;
+      if (!folder || folder.parentId === targetFolderId) return;
       startMoveTransition(async () => {
         try {
-          await moveFolder({ id, newParentId });
+          await moveFolder({ id, newParentId: targetFolderId });
         } catch (err) {
           window.alert(err instanceof Error ? err.message : "이동 실패");
         }
       });
     } else if (activeId.startsWith(SPEC_PREFIX)) {
       const id = activeId.slice(SPEC_PREFIX.length);
-      const spec = specs.find((s) => s.id === id);
-      if (!spec || spec.folderId === newParentId) return;
+      const spec = specById.get(id);
+      if (!spec) return;
+      // 자기 자신/후손 spec 위로 drop 금지
+      if (targetSpecId && descendantSpecIds.has(targetSpecId)) return;
+      // 변동 없음 → no-op
+      if (
+        targetSpecId !== null
+          ? spec.parentSpecId === targetSpecId
+          : spec.parentSpecId === null && spec.folderId === targetFolderId
+      ) {
+        return;
+      }
       startMoveTransition(async () => {
         try {
-          await moveSpec({ id, newFolderId: newParentId });
+          if (targetSpecId !== null) {
+            // Spec → 다른 Spec 의 하위
+            await moveSpec({ id, newParentSpecId: targetSpecId });
+          } else {
+            // Spec → 폴더 / 루트
+            await moveSpec({
+              id,
+              newFolderId: targetFolderId,
+              newParentSpecId: null,
+            });
+          }
         } catch (err) {
           window.alert(err instanceof Error ? err.message : "이동 실패");
         }
@@ -262,9 +343,9 @@ export function FolderSpecTree({
     }
   }
 
-  function renderChildren(parentId: string | null, depth: number) {
-    const folderChildren = folderChildrenMap.get(parentId) ?? [];
-    const specChildren = specsByFolderId.get(parentId) ?? [];
+  function renderFolderContents(parentFolderId: string | null, depth: number) {
+    const folderChildren = folderChildrenMap.get(parentFolderId) ?? [];
+    const rootSpecChildren = specsByFolderId.get(parentFolderId) ?? [];
     return (
       <>
         {folderChildren.map((folder) => {
@@ -295,7 +376,7 @@ export function FolderSpecTree({
               />
               {isExpanded && (
                 <>
-                  {renderChildren(folder.id, depth + 1)}
+                  {renderFolderContents(folder.id, depth + 1)}
                   {creating?.parentId === folder.id && (
                     <NewFolderInput
                       projectId={projectId}
@@ -309,16 +390,35 @@ export function FolderSpecTree({
             </div>
           );
         })}
-        {specChildren.map((spec) => (
-          <SpecRow
-            key={`s-${spec.id}`}
-            spec={spec}
-            depth={depth}
-            projectSlug={projectSlug}
-            isSelected={selectedSpecId === spec.id}
-          />
-        ))}
+        {rootSpecChildren.map((spec) => renderSpecTree(spec, depth))}
       </>
+    );
+  }
+
+  function renderSpecTree(spec: SpecNode, depth: number) {
+    const subSpecs = specsByParentSpecId.get(spec.id) ?? [];
+    const hasSubSpecs = subSpecs.length > 0;
+    const isExpanded = expanded.has(spec.id);
+    return (
+      <div key={`s-${spec.id}`}>
+        <SpecRow
+          spec={spec}
+          depth={depth}
+          projectSlug={projectSlug}
+          isSelected={selectedSpecId === spec.id}
+          hasSubSpecs={hasSubSpecs}
+          isExpanded={isExpanded}
+          isDropDisabled={descendantSpecIds.has(spec.id)}
+          onToggle={() => toggleExpand(spec.id)}
+          onAddSubSpec={() => {
+            ensureExpanded(spec.id);
+            setNewSpecDialog({ parentSpecId: spec.id });
+          }}
+        />
+        {isExpanded && hasSubSpecs && (
+          <>{subSpecs.map((child) => renderSpecTree(child, depth + 1))}</>
+        )}
+      </div>
     );
   }
 
@@ -395,7 +495,7 @@ export function FolderSpecTree({
               onDone={() => setCreating(null)}
             />
           )}
-          {renderChildren(null, 0)}
+          {renderFolderContents(null, 0)}
           {isEmpty && (
             <div className="px-4 py-6 text-center text-xs text-zinc-500">
               아직 폴더/Spec 이 없어요. 아래 &ldquo;+ 만들기&rdquo; 로 시작하세요.
@@ -439,7 +539,9 @@ export function FolderSpecTree({
         onClose={() => setNewSpecDialog(null)}
         projectId={projectId}
         folders={folders}
+        specs={specs}
         preselectedFolderId={newSpecDialog?.folderId ?? null}
+        preselectedParentSpecId={newSpecDialog?.parentSpecId ?? null}
       />
     </DndContext>
   );
@@ -629,32 +731,68 @@ interface SpecRowProps {
   depth: number;
   projectSlug: string;
   isSelected: boolean;
+  hasSubSpecs: boolean;
+  isExpanded: boolean;
+  isDropDisabled: boolean;
+  onToggle: () => void;
+  onAddSubSpec: () => void;
 }
 
-function SpecRow({ spec, depth, projectSlug, isSelected }: SpecRowProps) {
+function SpecRow({
+  spec,
+  depth,
+  projectSlug,
+  isSelected,
+  hasSubSpecs,
+  isExpanded,
+  isDropDisabled,
+  onToggle,
+  onAddSubSpec,
+}: SpecRowProps) {
   const {
-    setNodeRef,
+    setNodeRef: setDragRef,
     attributes: dragAttrs,
     listeners,
     isDragging,
     transform,
   } = useDraggable({ id: `${SPEC_PREFIX}${spec.id}` });
 
+  // Spec 도 droppable — 다른 Spec 을 드롭하면 sub-spec 으로.
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `${SPEC_PREFIX}${spec.id}`,
+    disabled: isDropDisabled,
+  });
+
+  const setRef = (el: HTMLDivElement | null) => {
+    setDragRef(el);
+    setDropRef(el);
+  };
+
   return (
     <div
-      ref={setNodeRef}
+      ref={setRef}
       style={{
-        paddingLeft: `${depth * 14 + 22}px`,
+        paddingLeft: `${depth * 14 + 8}px`,
         transform: CSS.Translate.toString(transform),
       }}
       className={cn(
         "group flex items-center gap-1 py-1 text-sm transition-colors",
         isSelected
           ? "bg-zinc-100 dark:bg-zinc-800"
-          : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+          : !isOver && "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+        isOver && !isDropDisabled && "bg-blue-50 dark:bg-blue-950/40",
         isDragging && "opacity-40",
       )}
     >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex h-5 w-5 shrink-0 items-center justify-center text-xs text-zinc-400 hover:text-zinc-700"
+        aria-label={isExpanded ? "접기" : "펼치기"}
+        disabled={!hasSubSpecs}
+      >
+        {hasSubSpecs ? (isExpanded ? "▾" : "▸") : "·"}
+      </button>
       <button
         type="button"
         {...dragAttrs}
@@ -685,6 +823,16 @@ function SpecRow({ spec, depth, projectSlug, isSelected }: SpecRowProps) {
       >
         {spec.title}
       </Link>
+      <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={onAddSubSpec}
+          title="이 Spec 의 하위 Spec 추가"
+        >
+          +
+        </Button>
+      </div>
     </div>
   );
 }

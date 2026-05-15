@@ -9,6 +9,7 @@ export interface SpecListItem {
   title: string;
   type: SpecType;
   folderId: string | null;
+  parentSpecId: string | null;
   updatedAt: Date;
 }
 
@@ -33,6 +34,7 @@ export async function listSpecs(projectId: string): Promise<SpecListItem[]> {
       title: true,
       type: true,
       folderId: true,
+      parentSpecId: true,
       updatedAt: true,
     },
   });

@@ -127,6 +127,8 @@ model Spec {
   id                 String   @id @default(cuid())
   projectId          String   @map("project_id")
   folderId           String?  @map("folder_id")
+  // 트리 nesting — 다른 Spec 의 자식 Spec. SpecRelation contains (의미적 참조, M:N) 와는 별개.
+  parentSpecId       String?  @map("parent_spec_id")
   type               SpecType
   title              String
   taskOwnerId        String?  @map("task_owner_id")
@@ -138,6 +140,8 @@ model Spec {
 
   project          Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   folder           Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  parent           Spec?   @relation("SpecTree", fields: [parentSpecId], references: [id], onDelete: SetNull)
+  children         Spec[]  @relation("SpecTree")
   taskOwner        User?   @relation("SpecTaskOwner",        fields: [taskOwnerId],        references: [id], onDelete: SetNull)
   designContact    User?   @relation("SpecDesignContact",    fields: [designContactId],    references: [id], onDelete: SetNull)
   prototypeContact User?   @relation("SpecPrototypeContact", fields: [prototypeContactId], references: [id], onDelete: SetNull)
@@ -149,6 +153,7 @@ model Spec {
   relationsTo   SpecRelation[] @relation("ToSpec")
 
   @@index([projectId, folderId])
+  @@index([projectId, parentSpecId])
   @@map("specs")
 }
 

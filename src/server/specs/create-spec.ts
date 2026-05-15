@@ -22,6 +22,8 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
   const type = String(formData.get("type") ?? "");
   const folderIdRaw = String(formData.get("folderId") ?? "");
   const folderId = folderIdRaw === "" ? null : folderIdRaw;
+  const parentSpecIdRaw = String(formData.get("parentSpecId") ?? "");
+  const parentSpecId = parentSpecIdRaw === "" ? null : parentSpecIdRaw;
 
   if (!projectId) throw new Error("projectId 누락.");
   if (title.length < 1 || title.length > 200) {
@@ -46,10 +48,19 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
     if (!folder) throw new Error("폴더를 찾을 수 없음.");
   }
 
+  if (parentSpecId) {
+    const parent = await db.spec.findFirst({
+      where: { id: parentSpecId, projectId },
+      select: { id: true },
+    });
+    if (!parent) throw new Error("부모 Spec 을 찾을 수 없음.");
+  }
+
   const spec = await db.spec.create({
     data: {
       projectId,
       folderId,
+      parentSpecId,
       title,
       type: type as SpecType,
     },

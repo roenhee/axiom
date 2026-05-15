@@ -39,6 +39,7 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
         title: s.title,
         type: s.type,
         folderId: s.folderId,
+        parentSpecId: s.parentSpecId,
       }))}
     >
       {children}
