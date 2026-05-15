@@ -598,7 +598,7 @@ export function FolderSpecTree({
             <HelpPopover />
           </div>
           <AddMenu
-            align="right"
+
             trigger={
               <span
                 className={buttonVariants({ size: "xs" })}
@@ -630,13 +630,19 @@ export function FolderSpecTree({
               아직 폴더/Spec 이 없어요. 아래 &ldquo;+ 만들기&rdquo; 로 시작하세요.
             </div>
           )}
-          <div className="px-2 py-1.5">
+          <div className="py-1.5">
             <AddMenu
-              align="left"
               trigger={
-                <span className="flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300">
-                  <Plus className="h-3.5 w-3.5" />
-                  만들기
+                <span
+                  className="flex w-full cursor-pointer items-center gap-1 rounded py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300"
+                  style={{ paddingLeft: 8 }}
+                >
+                  {/* drag handle 자리 (다른 row 정렬용 invisible slot) */}
+                  <span className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                    <Plus className="h-3.5 w-3.5" />
+                  </span>
+                  <span>만들기</span>
                 </span>
               }
               items={buildAddMenuItems({
@@ -739,6 +745,25 @@ function FolderRow({
         pending && "opacity-50",
       )}
     >
+      {folder.isLocked ? (
+        <span
+          className="flex h-5 w-5 shrink-0 select-none items-center justify-center text-zinc-200 dark:text-zinc-700"
+          title="시스템 예약 폴더 — 이동 불가"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
+      ) : (
+        <button
+          type="button"
+          {...dragAttrs}
+          {...listeners}
+          className="flex h-5 w-5 shrink-0 cursor-grab select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+          aria-label="드래그하여 이동"
+          title="드래그하여 이동"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      )}
       <button
         type="button"
         onClick={onToggle}
@@ -765,25 +790,6 @@ function FolderRow({
       ) : (
         <>
           {folder.isLocked ? (
-            <span
-              className="select-none text-zinc-200 dark:text-zinc-700"
-              title="시스템 예약 폴더 — 이동 불가"
-            >
-              <GripVertical className="h-3.5 w-3.5" />
-            </span>
-          ) : (
-            <button
-              type="button"
-              {...dragAttrs}
-              {...listeners}
-              className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
-              aria-label="드래그하여 이동"
-              title="드래그하여 이동"
-            >
-              <GripVertical className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {folder.isLocked ? (
             <FolderCog className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
           ) : (
             <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -793,7 +799,7 @@ function FolderRow({
           </span>
           <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
             <AddMenu
-              align="right"
+
               trigger={
                 <span
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
@@ -806,7 +812,7 @@ function FolderRow({
             />
             {!folder.isLocked && (
               <AddMenu
-                align="right"
+
                 trigger={
                   <span
                     className={buttonVariants({ size: "xs", variant: "ghost" })}
@@ -928,6 +934,16 @@ function SpecRow({
     >
       <button
         type="button"
+        {...dragAttrs}
+        {...listeners}
+        className="flex h-5 w-5 shrink-0 cursor-grab select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+        aria-label="드래그하여 이동"
+        title="드래그하여 이동"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
         onClick={onToggle}
         className="flex h-5 w-5 shrink-0 items-center justify-center text-zinc-600 hover:text-zinc-900 disabled:cursor-default disabled:opacity-100 dark:text-zinc-300 dark:hover:text-zinc-50"
         aria-label={isExpanded ? "접기" : "펼치기"}
@@ -955,16 +971,6 @@ function SpecRow({
         </>
       ) : (
         <>
-          <button
-            type="button"
-            {...dragAttrs}
-            {...listeners}
-            className="cursor-grab select-none text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
-            aria-label="드래그하여 이동"
-            title="드래그하여 이동"
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </button>
           <SpecTypeIcon type={spec.type} />
           <Link
             href={`/projects/${projectSlug}/specs/${spec.id}`}
@@ -979,7 +985,7 @@ function SpecRow({
           </Link>
           <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
             <AddMenu
-              align="right"
+
               trigger={
                 <span
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
@@ -991,7 +997,7 @@ function SpecRow({
               items={addMenuItems}
             />
             <AddMenu
-              align="right"
+
               trigger={
                 <span
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
