@@ -3,15 +3,18 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export interface AddMenuItem {
-  label: string;
-  description?: string;
-  onSelect: () => void;
-  icon?: ReactNode;
-}
+export type AddMenuEntry =
+  | {
+      kind: "item";
+      label: string;
+      description?: string;
+      onSelect: () => void;
+      icon?: ReactNode;
+    }
+  | { kind: "divider" };
 
 interface Props {
-  items: AddMenuItem[];
+  items: AddMenuEntry[];
   trigger: ReactNode;
   /** 메뉴 정렬 — 트리거 기준. 좌측 트리에선 right 가 자연스러움. */
   align?: "left" | "right";
@@ -66,33 +69,44 @@ export function AddMenu({ items, trigger, align = "left" }: Props) {
             align === "left" ? "left-0" : "right-0",
           )}
         >
-          {items.map((item, i) => (
-            <button
-              key={i}
-              type="button"
-              role="menuitem"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpen(false);
-                item.onSelect();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800"
-            >
-              {item.icon && (
-                <span className="shrink-0 text-zinc-400">{item.icon}</span>
-              )}
-              <div className="flex-1">
-                <div className="text-zinc-900 dark:text-zinc-100">
-                  {item.label}
-                </div>
-                {item.description && (
-                  <div className="text-[10px] text-zinc-500">
-                    {item.description}
-                  </div>
+          {items.map((item, i) => {
+            if (item.kind === "divider") {
+              return (
+                <div
+                  key={`d-${i}`}
+                  role="separator"
+                  className="my-1 border-t border-zinc-100 dark:border-zinc-800"
+                />
+              );
+            }
+            return (
+              <button
+                key={i}
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpen(false);
+                  item.onSelect();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800"
+              >
+                {item.icon && (
+                  <span className="shrink-0 text-zinc-400">{item.icon}</span>
                 )}
-              </div>
-            </button>
-          ))}
+                <div className="flex-1">
+                  <div className="text-zinc-900 dark:text-zinc-100">
+                    {item.label}
+                  </div>
+                  {item.description && (
+                    <div className="text-[10px] text-zinc-500">
+                      {item.description}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

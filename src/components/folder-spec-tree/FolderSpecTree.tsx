@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -25,8 +25,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SpecType } from "@/generated/prisma/enums";
-import { AddMenu } from "./AddMenu";
-import { NewSpecDialog } from "./NewSpecDialog";
+import { useRouter } from "next/navigation";
+import { createSpec } from "@/server/specs/create-spec";
+import { AddMenu, type AddMenuEntry } from "./AddMenu";
 
 export interface FolderNode {
   id: string;
@@ -71,6 +72,22 @@ const TYPE_SHORT: Record<SpecType, string> = {
   Tab: "TB",
   State: "ST",
 };
+
+const TYPE_LABEL: Record<SpecType, string> = {
+  FeatureGroup: "Feature Group",
+  Feature: "Feature",
+  Component: "Component",
+  Tab: "Tab",
+  State: "State",
+};
+
+const SPEC_TYPE_ORDER: SpecType[] = [
+  "FeatureGroup",
+  "Feature",
+  "Component",
+  "Tab",
+  "State",
+];
 
 /**
  * 좌측 패널 — 폴더 트리에 Spec 도 nested 로 표시.
@@ -219,16 +236,66 @@ export function FolderSpecTree({
     });
   }
 
-  const [creating, setCreating] = useState<{ parentId: string | null } | null>(
-    null,
-  );
-  // 새 Spec 다이얼로그 — null 이면 닫힘.
-  // folderId 또는 parentSpecId 중 하나로 위치 pre-select.
-  const [newSpecDialog, setNewSpecDialog] = useState<{
-    folderId?: string | null;
-    parentSpecId?: string | null;
-  } | null>(null);
+  // 인라인 생성 state. 한 번에 한 곳만 활성.
+  // folder: 폴더 생성. spec: type 별 spec 생성. parent 가 폴더이면 parentFolderId,
+  // 다른 spec 의 하위면 parentSpecId.
+  type CreatingState =
+    | { kind: "folder"; parentFolderId: string | null }
+    | {
+        kind: "spec";
+        specType: SpecType;
+        parentFolderId: string | null;
+        parentSpecId: string | null;
+      };
+  const [creating, setCreating] = useState<CreatingState | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+
+  function startCreatingFolder(parentFolderId: string | null) {
+    if (parentFolderId !== null) ensureExpanded(parentFolderId);
+    setCreating({ kind: "folder", parentFolderId });
+  }
+
+  function startCreatingSpec(
+    specType: SpecType,
+    opts: { parentFolderId?: string | null; parentSpecId?: string | null } = {},
+  ) {
+    const parentFolderId = opts.parentFolderId ?? null;
+    const parentSpecId = opts.parentSpecId ?? null;
+    if (parentFolderId) ensureExpanded(parentFolderId);
+    if (parentSpecId) ensureExpanded(parentSpecId);
+    setCreating({ kind: "spec", specType, parentFolderId, parentSpecId });
+  }
+
+  /**
+   * AddMenu items 생성 — 5 SpecType 항목 + 옵션으로 divider + 폴더.
+   * Spec 행 안에선 폴더 항목 빠짐 (Spec 하위에 폴더는 데이터 모델상 불가).
+   */
+  function buildAddMenuItems(opts: {
+    parentFolderId?: string | null;
+    parentSpecId?: string | null;
+    includeFolder: boolean;
+  }): AddMenuEntry[] {
+    const items: AddMenuEntry[] = SPEC_TYPE_ORDER.map((t) => ({
+      kind: "item",
+      label: TYPE_LABEL[t],
+      icon: "📄",
+      onSelect: () =>
+        startCreatingSpec(t, {
+          parentFolderId: opts.parentFolderId,
+          parentSpecId: opts.parentSpecId,
+        }),
+    }));
+    if (opts.includeFolder) {
+      items.push({ kind: "divider" });
+      items.push({
+        kind: "item",
+        label: "폴더",
+        icon: "📁",
+        onSelect: () => startCreatingFolder(opts.parentFolderId ?? null),
+      });
+    }
+    return items;
+  }
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [movePending, startMoveTransition] = useTransition();
 
@@ -346,13 +413,23 @@ export function FolderSpecTree({
   function renderFolderContents(parentFolderId: string | null, depth: number) {
     const folderChildren = folderChildrenMap.get(parentFolderId) ?? [];
     const rootSpecChildren = specsByFolderId.get(parentFolderId) ?? [];
+    const isCreatingRootSpecHere =
+      creating?.kind === "spec" &&
+      creating.parentFolderId === parentFolderId &&
+      creating.parentSpecId === null;
     return (
       <>
         {folderChildren.map((folder) => {
           const isExpanded = expanded.has(folder.id);
+          const isCreatingInside =
+            (creating?.kind === "folder" && creating.parentFolderId === folder.id) ||
+            (creating?.kind === "spec" &&
+              creating.parentFolderId === folder.id &&
+              creating.parentSpecId === null);
           const hasContent =
             (folderChildrenMap.get(folder.id)?.length ?? 0) > 0 ||
-            (specsByFolderId.get(folder.id)?.length ?? 0) > 0;
+            (specsByFolderId.get(folder.id)?.length ?? 0) > 0 ||
+            isCreatingInside;
           return (
             <div key={`f-${folder.id}`}>
               <FolderRow
@@ -365,39 +442,50 @@ export function FolderSpecTree({
                 onToggle={() => toggleExpand(folder.id)}
                 onStartRename={() => setRenamingId(folder.id)}
                 onFinishRename={() => setRenamingId(null)}
-                onAddChild={() => {
-                  ensureExpanded(folder.id);
-                  setCreating({ parentId: folder.id });
-                }}
-                onAddSpec={() => {
-                  setNewSpecDialog({ folderId: folder.id });
-                }}
+                addMenuItems={buildAddMenuItems({
+                  parentFolderId: folder.id,
+                  includeFolder: true,
+                })}
                 projectSlug={projectSlug}
               />
               {isExpanded && (
                 <>
                   {renderFolderContents(folder.id, depth + 1)}
-                  {creating?.parentId === folder.id && (
-                    <NewFolderInput
-                      projectId={projectId}
-                      parentId={folder.id}
-                      depth={depth + 1}
-                      onDone={() => setCreating(null)}
-                    />
-                  )}
+                  {creating?.kind === "folder" &&
+                    creating.parentFolderId === folder.id && (
+                      <NewFolderInput
+                        projectId={projectId}
+                        parentId={folder.id}
+                        depth={depth + 1}
+                        onDone={() => setCreating(null)}
+                      />
+                    )}
                 </>
               )}
             </div>
           );
         })}
         {rootSpecChildren.map((spec) => renderSpecTree(spec, depth))}
+        {isCreatingRootSpecHere &&
+          creating?.kind === "spec" && (
+            <NewSpecInput
+              projectId={projectId}
+              specType={creating.specType}
+              parentFolderId={parentFolderId}
+              parentSpecId={null}
+              depth={depth}
+              onDone={() => setCreating(null)}
+            />
+          )}
       </>
     );
   }
 
   function renderSpecTree(spec: SpecNode, depth: number) {
     const subSpecs = specsByParentSpecId.get(spec.id) ?? [];
-    const hasSubSpecs = subSpecs.length > 0;
+    const isCreatingSubSpec =
+      creating?.kind === "spec" && creating.parentSpecId === spec.id;
+    const hasSubSpecs = subSpecs.length > 0 || isCreatingSubSpec;
     const isExpanded = expanded.has(spec.id);
     return (
       <div key={`s-${spec.id}`}>
@@ -410,13 +498,25 @@ export function FolderSpecTree({
           isExpanded={isExpanded}
           isDropDisabled={descendantSpecIds.has(spec.id)}
           onToggle={() => toggleExpand(spec.id)}
-          onAddSubSpec={() => {
-            ensureExpanded(spec.id);
-            setNewSpecDialog({ parentSpecId: spec.id });
-          }}
+          addMenuItems={buildAddMenuItems({
+            parentSpecId: spec.id,
+            includeFolder: false,
+          })}
         />
         {isExpanded && hasSubSpecs && (
-          <>{subSpecs.map((child) => renderSpecTree(child, depth + 1))}</>
+          <>
+            {subSpecs.map((child) => renderSpecTree(child, depth + 1))}
+            {isCreatingSubSpec && creating?.kind === "spec" && (
+              <NewSpecInput
+                projectId={projectId}
+                specType={creating.specType}
+                parentFolderId={null}
+                parentSpecId={spec.id}
+                depth={depth + 1}
+                onDone={() => setCreating(null)}
+              />
+            )}
+          </>
         )}
       </div>
     );
@@ -463,31 +563,20 @@ export function FolderSpecTree({
           <AddMenu
             align="right"
             trigger={
-              <span
-                className={buttonVariants({ size: "xs" })}
-                title="추가"
-              >
+              <span className={buttonVariants({ size: "xs" })} title="추가">
                 + 추가
               </span>
             }
-            items={[
-              {
-                label: "폴더",
-                icon: "📁",
-                onSelect: () => setCreating({ parentId: null }),
-              },
-              {
-                label: "Spec",
-                icon: "📄",
-                onSelect: () => setNewSpecDialog({ folderId: null }),
-              },
-            ]}
+            items={buildAddMenuItems({
+              parentFolderId: null,
+              includeFolder: true,
+            })}
           />
         </div>
 
         <div className="flex-1 overflow-y-auto py-1">
           <RootDropZone visible={draggingId !== null} />
-          {creating?.parentId === null && (
+          {creating?.kind === "folder" && creating.parentFolderId === null && (
             <NewFolderInput
               projectId={projectId}
               parentId={null}
@@ -509,18 +598,10 @@ export function FolderSpecTree({
                   + 만들기
                 </span>
               }
-              items={[
-                {
-                  label: "폴더",
-                  icon: "📁",
-                  onSelect: () => setCreating({ parentId: null }),
-                },
-                {
-                  label: "Spec",
-                  icon: "📄",
-                  onSelect: () => setNewSpecDialog({ folderId: null }),
-                },
-              ]}
+              items={buildAddMenuItems({
+                parentFolderId: null,
+                includeFolder: true,
+              })}
             />
           </div>
         </div>
@@ -533,16 +614,6 @@ export function FolderSpecTree({
           </div>
         ) : null}
       </DragOverlay>
-
-      <NewSpecDialog
-        open={newSpecDialog !== null}
-        onClose={() => setNewSpecDialog(null)}
-        projectId={projectId}
-        folders={folders}
-        specs={specs}
-        preselectedFolderId={newSpecDialog?.folderId ?? null}
-        preselectedParentSpecId={newSpecDialog?.parentSpecId ?? null}
-      />
     </DndContext>
   );
 }
@@ -583,8 +654,8 @@ interface FolderRowProps {
   onToggle: () => void;
   onStartRename: () => void;
   onFinishRename: () => void;
-  onAddChild: () => void;
-  onAddSpec: () => void;
+  /** + 메뉴 항목 — 부모에서 buildAddMenuItems() 로 생성. */
+  addMenuItems: AddMenuEntry[];
   projectSlug: string;
 }
 
@@ -598,8 +669,7 @@ function FolderRow({
   onToggle,
   onStartRename,
   onFinishRename,
-  onAddChild,
-  onAddSpec,
+  addMenuItems,
   projectSlug,
 }: FolderRowProps) {
   const [pending, startTransition] = useTransition();
@@ -685,18 +755,7 @@ function FolderRow({
                   +
                 </span>
               }
-              items={[
-                {
-                  label: "Spec",
-                  icon: "📄",
-                  onSelect: onAddSpec,
-                },
-                {
-                  label: "하위 폴더",
-                  icon: "📁",
-                  onSelect: onAddChild,
-                },
-              ]}
+              items={addMenuItems}
             />
             <Button
               size="xs"
@@ -735,7 +794,8 @@ interface SpecRowProps {
   isExpanded: boolean;
   isDropDisabled: boolean;
   onToggle: () => void;
-  onAddSubSpec: () => void;
+  /** + 메뉴 항목 — 5 SpecType 만, 폴더 없음. */
+  addMenuItems: AddMenuEntry[];
 }
 
 function SpecRow({
@@ -747,7 +807,7 @@ function SpecRow({
   isExpanded,
   isDropDisabled,
   onToggle,
-  onAddSubSpec,
+  addMenuItems,
 }: SpecRowProps) {
   const {
     setNodeRef: setDragRef,
@@ -824,14 +884,18 @@ function SpecRow({
         {spec.title}
       </Link>
       <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={onAddSubSpec}
-          title="이 Spec 의 하위 Spec 추가"
-        >
-          +
-        </Button>
+        <AddMenu
+          align="right"
+          trigger={
+            <span
+              className={buttonVariants({ size: "xs", variant: "ghost" })}
+              title="이 Spec 의 하위 Spec 추가"
+            >
+              +
+            </span>
+          }
+          items={addMenuItems}
+        />
       </div>
     </div>
   );
@@ -854,19 +918,20 @@ function NewFolderInput({
 }) {
   const [value, setValue] = useState("");
   const [pending, startTransition] = useTransition();
+  // submit 후 onBlur 가 한 번 더 트리거되면 이중 생성. 한 번만 처리.
+  const submittedRef = useRef(false);
 
   function submit() {
-    const name = value.trim();
-    if (!name) {
-      onDone();
-      return;
-    }
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     startTransition(async () => {
       try {
-        await createFolder({ projectId, parentId, name });
+        // 빈 이름이면 서버에서 "폴더 YYYY-MM-DD" 로 자동 생성.
+        await createFolder({ projectId, parentId, name: value });
         onDone();
       } catch (e) {
         window.alert(e instanceof Error ? e.message : "생성 실패");
+        onDone();
       }
     });
   }
@@ -876,6 +941,7 @@ function NewFolderInput({
       className="flex items-center gap-1 px-2 py-1"
       style={{ paddingLeft: `${depth * 14 + 28}px` }}
     >
+      <span className="shrink-0 text-zinc-400">📁</span>
       <Input
         autoFocus
         value={value}
@@ -883,10 +949,92 @@ function NewFolderInput({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
-          if (e.key === "Escape") onDone();
+          if (e.key === "Escape") {
+            submittedRef.current = true;
+            onDone();
+          }
         }}
         onBlur={submit}
-        placeholder="새 폴더 이름"
+        placeholder="비워두면 자동 이름"
+        className="h-7"
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// New spec inline input
+// ============================================================
+
+function NewSpecInput({
+  projectId,
+  specType,
+  parentFolderId,
+  parentSpecId,
+  depth,
+  onDone,
+}: {
+  projectId: string;
+  specType: SpecType;
+  parentFolderId: string | null;
+  parentSpecId: string | null;
+  depth: number;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  const submittedRef = useRef(false);
+
+  function submit() {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+    startTransition(async () => {
+      try {
+        const fd = new FormData();
+        fd.set("projectId", projectId);
+        fd.set("title", value);
+        fd.set("type", specType);
+        if (parentFolderId) fd.set("folderId", parentFolderId);
+        if (parentSpecId) fd.set("parentSpecId", parentSpecId);
+        const { projectSlug, specId } = await createSpec(fd);
+        onDone();
+        router.push(`/projects/${projectSlug}/specs/${specId}`);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "생성 실패");
+        onDone();
+      }
+    });
+  }
+
+  return (
+    <div
+      className="flex items-center gap-1 px-2 py-1"
+      style={{ paddingLeft: `${depth * 14 + 28}px` }}
+    >
+      <span
+        className={cn(
+          "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
+          TYPE_TONE[specType],
+        )}
+        title={specType}
+      >
+        {TYPE_SHORT[specType]}
+      </span>
+      <Input
+        autoFocus
+        value={value}
+        disabled={pending}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          if (e.key === "Escape") {
+            submittedRef.current = true;
+            onDone();
+          }
+        }}
+        onBlur={submit}
+        placeholder={`${TYPE_LABEL[specType]} — 비워두면 자동 이름`}
         className="h-7"
       />
     </div>
