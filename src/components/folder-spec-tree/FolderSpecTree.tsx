@@ -30,6 +30,21 @@ import type { SpecType } from "@/generated/prisma/enums";
 import { useRouter } from "next/navigation";
 import { createSpec } from "@/server/specs/create-spec";
 import { AddMenu, type AddMenuEntry } from "./AddMenu";
+import { HelpPopover } from "./HelpPopover";
+import {
+  Plus,
+  Folder as FolderIcon,
+  Layers,
+  Sparkles,
+  Component as ComponentIcon,
+  PanelTop,
+  Activity,
+  MoreHorizontal,
+  GripVertical,
+  Pencil,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 
 export interface FolderNode {
   id: string;
@@ -57,22 +72,21 @@ const ROOT_DROP_ID = "__root__";
 const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
 
-const TYPE_TONE: Record<SpecType, string> = {
-  FeatureGroup:
-    "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200",
-  Feature: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
-  Component:
-    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-  Tab: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  State: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
+/** 트리 아이콘 텍스트 색상 (라인 아이콘 stroke). TYPE_TONE 색상의 text-only 버전. */
+const TYPE_ICON_COLOR: Record<SpecType, string> = {
+  FeatureGroup: "text-purple-600 dark:text-purple-300",
+  Feature: "text-blue-600 dark:text-blue-300",
+  Component: "text-emerald-600 dark:text-emerald-300",
+  Tab: "text-amber-600 dark:text-amber-300",
+  State: "text-zinc-500 dark:text-zinc-400",
 };
 
-const TYPE_SHORT: Record<SpecType, string> = {
-  FeatureGroup: "FG",
-  Feature: "FT",
-  Component: "CP",
-  Tab: "TB",
-  State: "ST",
+const SPEC_TYPE_ICON: Record<SpecType, LucideIcon> = {
+  FeatureGroup: Layers,
+  Feature: Sparkles,
+  Component: ComponentIcon,
+  Tab: PanelTop,
+  State: Activity,
 };
 
 const TYPE_LABEL: Record<SpecType, string> = {
@@ -277,22 +291,25 @@ export function FolderSpecTree({
     parentSpecId?: string | null;
     includeFolder: boolean;
   }): AddMenuEntry[] {
-    const items: AddMenuEntry[] = SPEC_TYPE_ORDER.map((t) => ({
-      kind: "item",
-      label: TYPE_LABEL[t],
-      icon: "📄",
-      onSelect: () =>
-        startCreatingSpec(t, {
-          parentFolderId: opts.parentFolderId,
-          parentSpecId: opts.parentSpecId,
-        }),
-    }));
+    const items: AddMenuEntry[] = SPEC_TYPE_ORDER.map((t) => {
+      const Icon = SPEC_TYPE_ICON[t];
+      return {
+        kind: "item",
+        label: TYPE_LABEL[t],
+        icon: <Icon className={cn("h-3.5 w-3.5", TYPE_ICON_COLOR[t])} />,
+        onSelect: () =>
+          startCreatingSpec(t, {
+            parentFolderId: opts.parentFolderId,
+            parentSpecId: opts.parentSpecId,
+          }),
+      };
+    });
     if (opts.includeFolder) {
       items.push({ kind: "divider" });
       items.push({
         kind: "item",
         label: "폴더",
-        icon: "📁",
+        icon: <FolderIcon className="h-3.5 w-3.5 text-zinc-500" />,
         onSelect: () => startCreatingFolder(opts.parentFolderId ?? null),
       });
     }
@@ -545,7 +562,7 @@ export function FolderSpecTree({
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            구조
+            프로젝트 구조
           </h2>
         </div>
         <div className="flex-1 px-3 py-2 text-xs text-zinc-400">로딩…</div>
@@ -562,14 +579,21 @@ export function FolderSpecTree({
     >
       <div className={cn("flex h-full flex-col", movePending && "opacity-70")}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            구조
-          </h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              프로젝트 구조
+            </h2>
+            <HelpPopover />
+          </div>
           <AddMenu
             align="right"
             trigger={
-              <span className={buttonVariants({ size: "xs" })} title="추가">
-                + 추가
+              <span
+                className={buttonVariants({ size: "xs" })}
+                title="추가"
+                aria-label="추가"
+              >
+                <Plus className="h-3.5 w-3.5" />
               </span>
             }
             items={buildAddMenuItems({
@@ -600,7 +624,8 @@ export function FolderSpecTree({
               align="left"
               trigger={
                 <span className="flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300">
-                  + 만들기
+                  <Plus className="h-3.5 w-3.5" />
+                  만들기
                 </span>
               }
               items={buildAddMenuItems({
@@ -747,9 +772,9 @@ function FolderRow({
             aria-label="드래그하여 이동"
             title="드래그하여 이동"
           >
-            ⠿
+            <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <span className="shrink-0 text-zinc-400">📁</span>
+          <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
           <span className="flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">
             {folder.name}
           </span>
@@ -761,7 +786,7 @@ function FolderRow({
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
                   title="이 폴더에 추가"
                 >
-                  +
+                  <Plus className="h-3.5 w-3.5" />
                 </span>
               }
               items={addMenuItems}
@@ -773,20 +798,20 @@ function FolderRow({
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
                   title="더보기"
                 >
-                  ⋯
+                  <MoreHorizontal className="h-3.5 w-3.5" />
                 </span>
               }
               items={[
                 {
                   kind: "item",
                   label: "이름 변경",
-                  icon: "✎",
+                  icon: <Pencil className="h-3.5 w-3.5" />,
                   onSelect: onStartRename,
                 },
                 {
                   kind: "item",
                   label: "삭제",
-                  icon: "🗑️",
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
                   onSelect: handleDelete,
                 },
               ]}
@@ -898,15 +923,7 @@ function SpecRow({
 
       {isRenaming ? (
         <>
-          <span
-            className={cn(
-              "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-              TYPE_TONE[spec.type],
-            )}
-            title={spec.type}
-          >
-            {TYPE_SHORT[spec.type]}
-          </span>
+          <SpecTypeIcon type={spec.type} />
           <RenameInput
             initialValue={spec.title}
             onSave={(title) => renameSpec({ id: spec.id, title })}
@@ -923,17 +940,9 @@ function SpecRow({
             aria-label="드래그하여 이동"
             title="드래그하여 이동"
           >
-            ⠿
+            <GripVertical className="h-3.5 w-3.5" />
           </button>
-          <span
-            className={cn(
-              "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-              TYPE_TONE[spec.type],
-            )}
-            title={spec.type}
-          >
-            {TYPE_SHORT[spec.type]}
-          </span>
+          <SpecTypeIcon type={spec.type} />
           <Link
             href={`/projects/${projectSlug}/specs/${spec.id}`}
             className={cn(
@@ -953,7 +962,7 @@ function SpecRow({
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
                   title="이 Spec 의 하위 Spec 추가"
                 >
-                  +
+                  <Plus className="h-3.5 w-3.5" />
                 </span>
               }
               items={addMenuItems}
@@ -965,20 +974,20 @@ function SpecRow({
                   className={buttonVariants({ size: "xs", variant: "ghost" })}
                   title="더보기"
                 >
-                  ⋯
+                  <MoreHorizontal className="h-3.5 w-3.5" />
                 </span>
               }
               items={[
                 {
                   kind: "item",
                   label: "이름 변경",
-                  icon: "✎",
+                  icon: <Pencil className="h-3.5 w-3.5" />,
                   onSelect: onStartRename,
                 },
                 {
                   kind: "item",
                   label: "삭제",
-                  icon: "🗑️",
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
                   onSelect: handleDelete,
                 },
               ]}
@@ -1030,7 +1039,7 @@ function NewFolderInput({
       className="flex items-center gap-1 px-2 py-1"
       style={{ paddingLeft: `${depth * 14 + 28}px` }}
     >
-      <span className="shrink-0 text-zinc-400">📁</span>
+      <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
       <Input
         autoFocus
         value={value}
@@ -1101,15 +1110,7 @@ function NewSpecInput({
       className="flex items-center gap-1 px-2 py-1"
       style={{ paddingLeft: `${depth * 14 + 28}px` }}
     >
-      <span
-        className={cn(
-          "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide",
-          TYPE_TONE[specType],
-        )}
-        title={specType}
-      >
-        {TYPE_SHORT[specType]}
-      </span>
+      <SpecTypeIcon type={specType} />
       <Input
         autoFocus
         value={value}
@@ -1182,6 +1183,20 @@ function RenameInput({
       }}
       onBlur={submit}
       className="h-7 flex-1"
+    />
+  );
+}
+
+// ============================================================
+// SpecTypeIcon — 트리에서 Spec 종류 표시 (라인 아이콘 + 타입 색상)
+// ============================================================
+
+function SpecTypeIcon({ type }: { type: SpecType }) {
+  const Icon = SPEC_TYPE_ICON[type];
+  return (
+    <Icon
+      className={cn("h-3.5 w-3.5 shrink-0", TYPE_ICON_COLOR[type])}
+      aria-label={type}
     />
   );
 }
