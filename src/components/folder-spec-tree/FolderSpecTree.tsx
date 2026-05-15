@@ -10,10 +10,13 @@ import {
   DragOverlay,
   PointerSensor,
   KeyboardSensor,
+  pointerWithin,
+  rectIntersection,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { createFolder } from "@/server/folders/create-folder";
@@ -31,6 +34,10 @@ import { useRouter } from "next/navigation";
 import { createSpec } from "@/server/specs/create-spec";
 import { AddMenu, type AddMenuEntry } from "./AddMenu";
 import { HelpPopover } from "./HelpPopover";
+import {
+  childTypeRejectionReason,
+  isChildTypeAllowed,
+} from "@/lib/spec-type-hierarchy";
 import {
   Plus,
   Folder as FolderIcon,
@@ -76,6 +83,24 @@ const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
 const GAP_FOLDER_PREFIX = "gap-folder:";
 const GAP_SPEC_PREFIX = "gap-spec:";
+
+/**
+ * collisionDetection — gap zone(좁은 droppable) 우선 매칭.
+ * 기본 rectIntersection 은 활성 row 의 큰 rect 가 row droppable 과 더 큰 영역
+ * 교차해서 row 가 잡힘 → gap drop 안 됨. pointer 위치 기준으로 gap 먼저 검사.
+ */
+const collisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    const gapHit = pointerCollisions.find((c) => {
+      const id = String(c.id);
+      return id.startsWith(GAP_FOLDER_PREFIX) || id.startsWith(GAP_SPEC_PREFIX);
+    });
+    if (gapHit) return [gapHit];
+    return pointerCollisions;
+  }
+  return rectIntersection(args);
+};
 
 /** 트리 아이콘 텍스트 색상 (라인 아이콘 stroke). TYPE_TONE 색상의 text-only 버전. */
 const TYPE_ICON_COLOR: Record<SpecType, string> = {
@@ -290,15 +315,21 @@ export function FolderSpecTree({
   }
 
   /**
-   * AddMenu items 생성 — 5 SpecType 항목 + 옵션으로 divider + 폴더.
-   * Spec 행 안에선 폴더 항목 빠짐 (Spec 하위에 폴더는 데이터 모델상 불가).
+   * AddMenu items 생성 — 4 SpecType 항목 + 옵션으로 divider + 폴더.
+   * - includeFolder: 폴더 항목 포함 여부 (Spec 행에서는 false).
+   * - parentSpecType: 부모 spec 의 type. 지정 시 자식 type 위계 룰 (D-035) 적용.
+   *   부모보다 상위 type 은 메뉴에서 제외.
    */
   function buildAddMenuItems(opts: {
     parentFolderId?: string | null;
     parentSpecId?: string | null;
+    parentSpecType?: SpecType;
     includeFolder: boolean;
   }): AddMenuEntry[] {
-    const items: AddMenuEntry[] = SPEC_TYPE_ORDER.map((t) => {
+    const allowedTypes = opts.parentSpecType
+      ? SPEC_TYPE_ORDER.filter((t) => isChildTypeAllowed(opts.parentSpecType!, t))
+      : SPEC_TYPE_ORDER;
+    const items: AddMenuEntry[] = allowedTypes.map((t) => {
       const Icon = SPEC_TYPE_ICON[t];
       return {
         kind: "item",
@@ -399,6 +430,15 @@ export function FolderSpecTree({
       const newParentSpecId = parts[1] === "_" ? null : parts[1];
       const newOrder = parseInt(parts[2] ?? "0", 10);
       if (newParentSpecId && descendantSpecIds.has(newParentSpecId)) return;
+      // 위계 검증 (D-035) — 부모 spec 의 type 보다 상위 타입은 자식 불가.
+      const active = specById.get(specId);
+      if (active && newParentSpecId) {
+        const parent = specById.get(newParentSpecId);
+        if (parent && !isChildTypeAllowed(parent.type, active.type)) {
+          window.alert(childTypeRejectionReason(parent.type, active.type));
+          return;
+        }
+      }
       startMoveTransition(async () => {
         try {
           await moveSpec({
@@ -454,6 +494,14 @@ export function FolderSpecTree({
           : spec.parentSpecId === null && spec.folderId === targetFolderId
       ) {
         return;
+      }
+      // 위계 검증 (D-035) — 다른 spec 의 자식으로 들어갈 때만 적용.
+      if (targetSpecId !== null) {
+        const target = specById.get(targetSpecId);
+        if (target && !isChildTypeAllowed(target.type, spec.type)) {
+          window.alert(childTypeRejectionReason(target.type, spec.type));
+          return;
+        }
       }
       startMoveTransition(async () => {
         try {
@@ -619,6 +667,7 @@ export function FolderSpecTree({
           onFinishRename={() => setRenamingId(null)}
           addMenuItems={buildAddMenuItems({
             parentSpecId: spec.id,
+            parentSpecType: spec.type,
             includeFolder: false,
           })}
         />
@@ -692,6 +741,7 @@ export function FolderSpecTree({
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDraggingId(null)}
@@ -840,6 +890,7 @@ function FolderRow({
   return (
     <div
       ref={setRef}
+      {...(folder.isLocked ? {} : listeners)}
       style={{
         paddingLeft: `${depth * 14 + 8}px`,
         transform: CSS.Translate.toString(transform),
@@ -850,6 +901,7 @@ function FolderRow({
         isOver && !isDropDisabled && "bg-blue-50 dark:bg-blue-950/40",
         isDragging && "opacity-40",
         pending && "opacity-50",
+        !folder.isLocked && "cursor-grab active:cursor-grabbing",
       )}
     >
       {folder.isLocked ? (
@@ -860,16 +912,14 @@ function FolderRow({
           <GripVertical className="h-3.5 w-3.5" />
         </span>
       ) : (
-        <button
-          type="button"
+        <span
           {...dragAttrs}
-          {...listeners}
-          className="flex h-5 w-5 shrink-0 cursor-grab select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+          className="flex h-5 w-5 shrink-0 select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100"
           aria-label="드래그하여 이동"
           title="드래그하여 이동"
         >
           <GripVertical className="h-3.5 w-3.5" />
-        </button>
+        </span>
       )}
       <button
         type="button"
@@ -1025,12 +1075,13 @@ function SpecRow({
   return (
     <div
       ref={setRef}
+      {...listeners}
       style={{
         paddingLeft: `${depth * 14 + 8}px`,
         transform: CSS.Translate.toString(transform),
       }}
       className={cn(
-        "group flex items-center gap-1 py-1 text-sm transition-colors",
+        "group flex cursor-grab items-center gap-1 py-1 text-sm transition-colors active:cursor-grabbing",
         isSelected
           ? "bg-zinc-100 dark:bg-zinc-800"
           : !isOver && "hover:bg-zinc-50 dark:hover:bg-zinc-900",
@@ -1039,16 +1090,14 @@ function SpecRow({
         pending && "opacity-50",
       )}
     >
-      <button
-        type="button"
+      <span
         {...dragAttrs}
-        {...listeners}
-        className="flex h-5 w-5 shrink-0 cursor-grab select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
+        className="flex h-5 w-5 shrink-0 select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100"
         aria-label="드래그하여 이동"
         title="드래그하여 이동"
       >
         <GripVertical className="h-3.5 w-3.5" />
-      </button>
+      </span>
       <button
         type="button"
         onClick={onToggle}
@@ -1378,16 +1427,16 @@ function GapZone({
   return (
     <div
       ref={setNodeRef}
-      style={{ paddingLeft: `${depth * 14 + 8}px` }}
-      className="h-1.5"
+      className="relative h-3"
     >
       <div
         className={cn(
-          "h-0.5 rounded-full transition-colors",
+          "absolute top-1/2 h-0.5 -translate-y-1/2 rounded-full transition-colors",
           isOver
             ? "bg-blue-500 dark:bg-blue-400"
             : "bg-transparent",
         )}
+        style={{ left: `${depth * 14 + 8}px`, right: 8 }}
       />
     </div>
   );

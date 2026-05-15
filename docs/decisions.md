@@ -431,6 +431,69 @@ Phase 1-w.
 
 ---
 
+## 2026-05-15 — 트리 UX 추가 폴리시 + SpecType 계층 강제
+
+### D-033. dropdown 메뉴는 항상 트리거 오른쪽 아래 / portal 로 격리
+
+이전 AddMenu 의 `align` prop (left/right) 이 호출처마다 달라 사용자가 위치
+혼란 호소. 모든 dropdown 을 트리거 기준 오른쪽 아래 (top = bottom + 4, left =
+trigger.left) 로 통일. AddMenu 를 portal 로 리팩토링 — 좌측 트리 aside 의
+overflow-hidden 에 갇혀 잘리던 문제도 함께 해소.
+
+**관련**: `src/components/folder-spec-tree/AddMenu.tsx`, Phase 1-x.
+
+### D-034. 같은 위계로 이동하는 gap drop zone + Spec.order
+
+폴더/Spec 트리에서 드래그할 때 row 위로만 떨어뜨릴 수 있어서 "다른 row 의
+자식" 으로만 이동 가능. 사용자가 "동일 위계로 옮기기" 요구 → row 사이 간격에
+gap drop zone 추가.
+
+- Spec.order Int @default(0) 컬럼 추가 + 마이그레이션. 같은 부모 안 형제 순서
+  기록.
+- moveFolder / moveSpec 에 newOrder 옵션. 지정 시 같은 부모 안 형제 모두 0..N
+  으로 재정렬.
+- GapZone 컴포넌트 — dragging 중에만 렌더, isOver 시 파란 line.
+- dnd-kit collision detection 을 `pointerWithin` (with rectIntersection
+  fallback) 으로 변경 — 좁은 gap rect 가 활성 row 의 큰 rect 에 가려 잡히지
+  않던 문제 해결. gap 발견 시 row 보다 우선.
+
+**관련**: `prisma/schema.prisma` Spec.order, `src/server/folders/move-folder.ts`,
+`src/server/specs/move-spec.ts`, `src/components/folder-spec-tree/FolderSpecTree.tsx`,
+Phase 1-y.
+
+### D-035. SpecType 계층 부분 강제 — 옵션 C
+
+부모 spec 의 type 보다 상위 위계 type 은 자식으로 불가. PRD 6.1 계층도 의도
+(FeatureGroup > Feature > Component ≈ State) 와 데이터 일관성 확보.
+
+**룰**:
+- FeatureGroup (rank 0): 모든 type 자식 OK
+- Feature (rank 1): Feature / Component / State (FeatureGroup 불가)
+- Component (rank 2): Component / State (Feature 이상 불가)
+- State (rank 3): State 만 (실질 leaf)
+
+같은 type 또는 더 하위 type 으로의 nesting 은 모두 허용 — Feature 안 sub-Feature
+같은 분해는 자연스러운 사용 패턴이라 보존.
+
+**구현**:
+- `src/lib/spec-type-hierarchy.ts` 신규 — SPEC_TYPE_RANK / isChildTypeAllowed /
+  childTypeRejectionReason. server / client 공유.
+- 서버 (createSpec / moveSpec): parentSpecId 가 있고 type 위배면 throw.
+- 클라이언트 (FolderSpecTree):
+  · buildAddMenuItems 에 parentSpecType 받아 메뉴에서 상위 type 항목 제외.
+  · handleDragEnd 에서 spec → spec sub-drop / gap-spec drop 시 부모 type 검증,
+    위배면 alert 후 이동 거부.
+
+**옵션 A (strict, type=type 만) / 옵션 B (자유) 와 비교**: A 는 Feature 안에
+sub-Feature 도 막아 유연성 떨어짐. B 는 의미 깨짐 위험. C 는 잘못된 nesting
+(작은 단위 안에 큰 단위) 만 막아 균형 좋음.
+
+**관련**: `src/lib/spec-type-hierarchy.ts`, `src/server/specs/create-spec.ts`,
+`src/server/specs/move-spec.ts`, `src/components/folder-spec-tree/FolderSpecTree.tsx`,
+Phase 1-z.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

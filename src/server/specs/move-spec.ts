@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth/current-user";
+import {
+  childTypeRejectionReason,
+  isChildTypeAllowed,
+} from "@/lib/spec-type-hierarchy";
 
 /**
  * Spec 의 위치/순서 변경. target 종류에 따라 두 가지 사용:
@@ -33,6 +37,7 @@ export async function moveSpec(args: {
       projectId: true,
       folderId: true,
       parentSpecId: true,
+      type: true,
       project: {
         select: { slug: true, members: { where: { userId }, select: { id: true } } },
       },
@@ -58,11 +63,14 @@ export async function moveSpec(args: {
     }
     const parent = await db.spec.findUnique({
       where: { id: args.newParentSpecId },
-      select: { id: true, projectId: true, parentSpecId: true },
+      select: { id: true, projectId: true, parentSpecId: true, type: true },
     });
     if (!parent) throw new Error("부모 Spec 을 찾을 수 없음.");
     if (parent.projectId !== spec.projectId) {
       throw new Error("다른 프로젝트로는 이동 불가.");
+    }
+    if (!isChildTypeAllowed(parent.type, spec.type)) {
+      throw new Error(childTypeRejectionReason(parent.type, spec.type));
     }
     // 사이클 검사 — 새 부모의 조상 사슬에 args.id 가 있으면 거부.
     let cursor: string | null = parent.parentSpecId;

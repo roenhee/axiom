@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { SpecType } from "@/generated/prisma/enums";
+import {
+  childTypeRejectionReason,
+  isChildTypeAllowed,
+} from "@/lib/spec-type-hierarchy";
 
 const VALID_TYPES = new Set<string>(Object.values(SpecType));
 
@@ -58,9 +62,12 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
   if (parentSpecId) {
     const parent = await db.spec.findFirst({
       where: { id: parentSpecId, projectId },
-      select: { id: true },
+      select: { id: true, type: true },
     });
     if (!parent) throw new Error("부모 Spec 을 찾을 수 없음.");
+    if (!isChildTypeAllowed(parent.type, type as SpecType)) {
+      throw new Error(childTypeRejectionReason(parent.type, type as SpecType));
+    }
   }
 
   // 빈 title 이면 "{type label} {YYYY-MM-DD}" 로 자동 생성. 같은 위치에 중복 시 (N).
