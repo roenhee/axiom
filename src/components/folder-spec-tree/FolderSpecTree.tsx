@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -62,6 +62,7 @@ export interface SpecNode {
   type: SpecType;
   folderId: string | null;
   parentSpecId: string | null;
+  order: number;
 }
 
 interface Props {
@@ -73,6 +74,8 @@ interface Props {
 
 const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
+const GAP_FOLDER_PREFIX = "gap-folder:";
+const GAP_SPEC_PREFIX = "gap-spec:";
 
 /** 트리 아이콘 텍스트 색상 (라인 아이콘 stroke). TYPE_TONE 색상의 text-only 버전. */
 const TYPE_ICON_COLOR: Record<SpecType, string> = {
@@ -166,7 +169,7 @@ export function FolderSpecTree({
       map.set(s.folderId, arr);
     }
     for (const arr of map.values()) {
-      arr.sort((a, b) => a.title.localeCompare(b.title));
+      arr.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
     }
     return map;
   }, [specs]);
@@ -181,7 +184,7 @@ export function FolderSpecTree({
       map.set(s.parentSpecId, arr);
     }
     for (const arr of map.values()) {
-      arr.sort((a, b) => a.title.localeCompare(b.title));
+      arr.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
     }
     return map;
   }, [specs]);
@@ -371,6 +374,46 @@ export function FolderSpecTree({
     const overId = e.over ? String(e.over.id) : null;
     if (overId === activeId) return;
 
+    // Gap zone (위계 정렬) drop 처리.
+    if (overId?.startsWith(GAP_FOLDER_PREFIX)) {
+      if (!activeId.startsWith(FOLDER_PREFIX)) return;
+      const folderId = activeId.slice(FOLDER_PREFIX.length);
+      const parts = overId.slice(GAP_FOLDER_PREFIX.length).split(":");
+      const newParentId = parts[0] === "_" ? null : parts[0];
+      const newOrder = parseInt(parts[1] ?? "0", 10);
+      if (newParentId && descendantFolderIds.has(newParentId)) return;
+      startMoveTransition(async () => {
+        try {
+          await moveFolder({ id: folderId, newParentId, newOrder });
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : "이동 실패");
+        }
+      });
+      return;
+    }
+    if (overId?.startsWith(GAP_SPEC_PREFIX)) {
+      if (!activeId.startsWith(SPEC_PREFIX)) return;
+      const specId = activeId.slice(SPEC_PREFIX.length);
+      const parts = overId.slice(GAP_SPEC_PREFIX.length).split(":");
+      const newFolderId = parts[0] === "_" ? null : parts[0];
+      const newParentSpecId = parts[1] === "_" ? null : parts[1];
+      const newOrder = parseInt(parts[2] ?? "0", 10);
+      if (newParentSpecId && descendantSpecIds.has(newParentSpecId)) return;
+      startMoveTransition(async () => {
+        try {
+          await moveSpec({
+            id: specId,
+            newFolderId,
+            newParentSpecId,
+            newOrder,
+          });
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : "이동 실패");
+        }
+      });
+      return;
+    }
+
     // drop target 종류 — 폴더 / Spec / 루트 (over=null 도 루트로 처리).
     let targetFolderId: string | null = null;
     let targetSpecId: string | null = null;
@@ -439,6 +482,7 @@ export function FolderSpecTree({
       creating?.kind === "spec" &&
       creating.parentFolderId === parentFolderId &&
       creating.parentSpecId === null;
+    const showGaps = draggingId !== null;
     return (
       <>
         {folderChildren.map((folder, i) => {
@@ -461,6 +505,15 @@ export function FolderSpecTree({
                 <div
                   className="mx-3 my-1 border-t border-zinc-200 dark:border-zinc-800"
                   aria-hidden="true"
+                />
+              )}
+              {showGaps && (
+                <GapZone
+                  kind="folder"
+                  parentFolderId={parentFolderId}
+                  parentSpecId={null}
+                  order={i}
+                  depth={depth}
                 />
               )}
               <FolderRow
@@ -496,7 +549,39 @@ export function FolderSpecTree({
             </div>
           );
         })}
-        {rootSpecChildren.map((spec) => renderSpecTree(spec, depth))}
+        {/* 폴더 list 끝에도 폴더 reorder 용 gap */}
+        {showGaps && folderChildren.length > 0 && (
+          <GapZone
+            kind="folder"
+            parentFolderId={parentFolderId}
+            parentSpecId={null}
+            order={folderChildren.length}
+            depth={depth}
+          />
+        )}
+        {rootSpecChildren.map((spec, i) => (
+          <Fragment key={`s-${spec.id}`}>
+            {showGaps && (
+              <GapZone
+                kind="spec"
+                parentFolderId={parentFolderId}
+                parentSpecId={null}
+                order={i}
+                depth={depth}
+              />
+            )}
+            {renderSpecTree(spec, depth)}
+          </Fragment>
+        ))}
+        {showGaps && rootSpecChildren.length > 0 && (
+          <GapZone
+            kind="spec"
+            parentFolderId={parentFolderId}
+            parentSpecId={null}
+            order={rootSpecChildren.length}
+            depth={depth}
+          />
+        )}
         {isCreatingRootSpecHere &&
           creating?.kind === "spec" && (
             <NewSpecInput
@@ -539,7 +624,29 @@ export function FolderSpecTree({
         />
         {isExpanded && hasSubSpecs && (
           <>
-            {subSpecs.map((child) => renderSpecTree(child, depth + 1))}
+            {subSpecs.map((child, i) => (
+              <Fragment key={`s-${child.id}`}>
+                {draggingId !== null && (
+                  <GapZone
+                    kind="spec"
+                    parentFolderId={null}
+                    parentSpecId={spec.id}
+                    order={i}
+                    depth={depth + 1}
+                  />
+                )}
+                {renderSpecTree(child, depth + 1)}
+              </Fragment>
+            ))}
+            {draggingId !== null && subSpecs.length > 0 && (
+              <GapZone
+                kind="spec"
+                parentFolderId={null}
+                parentSpecId={spec.id}
+                order={subSpecs.length}
+                depth={depth + 1}
+              />
+            )}
             {isCreatingSubSpec && creating?.kind === "spec" && (
               <NewSpecInput
                 projectId={projectId}
@@ -1240,5 +1347,48 @@ function LeafDot() {
       aria-hidden="true"
       className="block h-1.5 w-1.5 rounded-full bg-zinc-500 dark:bg-zinc-400"
     />
+  );
+}
+
+// ============================================================
+// GapZone — 드래그 중 row 사이에 노출되는 reorder droppable.
+// ============================================================
+
+interface GapZoneProps {
+  kind: "folder" | "spec";
+  parentFolderId: string | null;
+  parentSpecId: string | null;
+  /** 같은 부모 안 형제들 사이의 삽입 위치 (0-indexed). */
+  order: number;
+  depth: number;
+}
+
+function GapZone({
+  kind,
+  parentFolderId,
+  parentSpecId,
+  order,
+  depth,
+}: GapZoneProps) {
+  const id =
+    kind === "folder"
+      ? `${GAP_FOLDER_PREFIX}${parentFolderId ?? "_"}:${order}`
+      : `${GAP_SPEC_PREFIX}${parentFolderId ?? "_"}:${parentSpecId ?? "_"}:${order}`;
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      className="h-1.5"
+    >
+      <div
+        className={cn(
+          "h-0.5 rounded-full transition-colors",
+          isOver
+            ? "bg-blue-500 dark:bg-blue-400"
+            : "bg-transparent",
+        )}
+      />
+    </div>
   );
 }

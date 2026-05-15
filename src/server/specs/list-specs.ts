@@ -10,6 +10,7 @@ export interface SpecListItem {
   type: SpecType;
   folderId: string | null;
   parentSpecId: string | null;
+  order: number;
   updatedAt: Date;
 }
 
@@ -28,13 +29,19 @@ export async function listSpecs(projectId: string): Promise<SpecListItem[]> {
 
   return db.spec.findMany({
     where: { projectId },
-    orderBy: [{ folderId: "asc" }, { type: "asc" }, { title: "asc" }],
+    orderBy: [
+      { folderId: "asc" },
+      { parentSpecId: "asc" },
+      { order: "asc" },
+      { title: "asc" },
+    ],
     select: {
       id: true,
       title: true,
       type: true,
       folderId: true,
       parentSpecId: true,
+      order: true,
       updatedAt: true,
     },
   });

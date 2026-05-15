@@ -93,6 +93,8 @@ model Spec {
   parentSpecId       String?  @map("parent_spec_id")
   type               SpecType
   title              String
+  // 같은 부모(folderId / parentSpecId) 안 형제들 사이의 순서. 트리 reorder DnD 의 결과 저장.
+  order              Int      @default(0)
   // PRD 4.6 metadata — 담당자 정보. Phase 5에서 실제 enforcement.
   taskOwnerId        String?  @map("task_owner_id")
   designContactId    String?  @map("design_contact_id")

@@ -73,6 +73,13 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
         type: type as SpecType,
       });
 
+  // 새 spec 의 order = 같은 부모 안 형제들 max order + 1 (끝에 추가).
+  const maxOrder = await db.spec.aggregate({
+    where: { projectId, folderId, parentSpecId },
+    _max: { order: true },
+  });
+  const nextOrder = (maxOrder._max.order ?? -1) + 1;
+
   const spec = await db.spec.create({
     data: {
       projectId,
@@ -80,6 +87,7 @@ export async function createSpec(formData: FormData): Promise<CreateSpecResult> 
       parentSpecId,
       title: finalTitle,
       type: type as SpecType,
+      order: nextOrder,
     },
     select: { id: true },
   });

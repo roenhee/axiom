@@ -40,6 +40,7 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
         type: s.type,
         folderId: s.folderId,
         parentSpecId: s.parentSpecId,
+        order: s.order,
       }))}
     >
       {children}
