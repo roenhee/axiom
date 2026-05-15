@@ -7,7 +7,6 @@ import {
   Layers,
   Sparkles,
   Component as ComponentIcon,
-  PanelTop,
   Activity,
   type LucideIcon,
 } from "lucide-react";
@@ -31,19 +30,13 @@ const DOC_TYPES: DocTypeEntry[] = [
     Icon: Sparkles,
     label: "Feature",
     iconColor: "text-blue-600 dark:text-blue-300",
-    description: "기능 한 개의 명세. 목적 · 사용자 시나리오 · 정책 · 포함되는 Component / Tab / State.",
+    description: "기능 한 개의 명세. 목적 · 사용자 시나리오 · 정책 · 포함되는 Component / State.",
   },
   {
     Icon: ComponentIcon,
     label: "Component",
     iconColor: "text-emerald-600 dark:text-emerald-300",
-    description: "UI 컴포넌트 한 개의 동작. 입력/출력 · 상태값 · 인터랙션 · validation · error/empty/loading.",
-  },
-  {
-    Icon: PanelTop,
-    label: "Tab",
-    iconColor: "text-amber-600 dark:text-amber-300",
-    description: "탭 또는 화면 내 주요 구간. 탭 내 Slot 구성 · 노출 조건 · 탭 전환 동작.",
+    description: "UI 컴포넌트 또는 화면 구간의 동작. 입력/출력 · 상태값 · 인터랙션 · validation · error/empty/loading. 탭 같은 영역도 광의의 Component 로 흡수.",
   },
   {
     Icon: Activity,

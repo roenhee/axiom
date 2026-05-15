@@ -121,7 +121,6 @@ enum SpecType {
   FeatureGroup   // = Epic
   Feature
   Component
-  Tab
   State
 }
 

@@ -80,7 +80,6 @@ enum SpecType {
   FeatureGroup
   Feature
   Component
-  Tab
   State
 }
 

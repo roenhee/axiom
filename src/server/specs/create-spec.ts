@@ -20,7 +20,6 @@ const TYPE_LABEL: Record<keyof typeof SpecType, string> = {
   FeatureGroup: "Feature Group",
   Feature: "Feature",
   Component: "Component",
-  Tab: "Tab",
   State: "State",
 };
 

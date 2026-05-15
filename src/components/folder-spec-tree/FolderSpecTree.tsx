@@ -38,12 +38,13 @@ import {
   Layers,
   Sparkles,
   Component as ComponentIcon,
-  PanelTop,
   Activity,
   MoreHorizontal,
   GripVertical,
   Pencil,
   Trash2,
+  ChevronRight,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 
@@ -78,7 +79,6 @@ const TYPE_ICON_COLOR: Record<SpecType, string> = {
   FeatureGroup: "text-purple-600 dark:text-purple-300",
   Feature: "text-blue-600 dark:text-blue-300",
   Component: "text-emerald-600 dark:text-emerald-300",
-  Tab: "text-amber-600 dark:text-amber-300",
   State: "text-zinc-500 dark:text-zinc-400",
 };
 
@@ -86,7 +86,6 @@ const SPEC_TYPE_ICON: Record<SpecType, LucideIcon> = {
   FeatureGroup: Layers,
   Feature: Sparkles,
   Component: ComponentIcon,
-  Tab: PanelTop,
   State: Activity,
 };
 
@@ -94,7 +93,6 @@ const TYPE_LABEL: Record<SpecType, string> = {
   FeatureGroup: "Feature Group",
   Feature: "Feature",
   Component: "Component",
-  Tab: "Tab",
   State: "State",
 };
 
@@ -102,7 +100,6 @@ const SPEC_TYPE_ORDER: SpecType[] = [
   "FeatureGroup",
   "Feature",
   "Component",
-  "Tab",
   "State",
 ];
 
@@ -745,10 +742,18 @@ function FolderRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex h-5 w-5 shrink-0 items-center justify-center text-xs text-zinc-400 hover:text-zinc-700"
+        className="flex h-5 w-5 shrink-0 items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-50"
         aria-label={isExpanded ? "접기" : "펼치기"}
       >
-        {hasContent ? (isExpanded ? "▾" : "▸") : "·"}
+        {hasContent ? (
+          isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <LeafDot />
+        )}
       </button>
 
       {isRenaming ? (
@@ -924,11 +929,19 @@ function SpecRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex h-5 w-5 shrink-0 items-center justify-center text-xs text-zinc-400 hover:text-zinc-700"
+        className="flex h-5 w-5 shrink-0 items-center justify-center text-zinc-600 hover:text-zinc-900 disabled:cursor-default disabled:opacity-100 dark:text-zinc-300 dark:hover:text-zinc-50"
         aria-label={isExpanded ? "접기" : "펼치기"}
         disabled={!hasSubSpecs}
       >
-        {hasSubSpecs ? (isExpanded ? "▾" : "▸") : "·"}
+        {hasSubSpecs ? (
+          isExpanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )
+        ) : (
+          <LeafDot />
+        )}
       </button>
 
       {isRenaming ? (
@@ -1207,6 +1220,19 @@ function SpecTypeIcon({ type }: { type: SpecType }) {
     <Icon
       className={cn("h-3.5 w-3.5 shrink-0", TYPE_ICON_COLOR[type])}
       aria-label={type}
+    />
+  );
+}
+
+// ============================================================
+// LeafDot — 하위 문서가 없는 spec / 폴더의 자리표시 (접기/펼치기 아이콘 대체)
+// ============================================================
+
+function LeafDot() {
+  return (
+    <span
+      aria-hidden="true"
+      className="block h-1.5 w-1.5 rounded-full bg-zinc-500 dark:bg-zinc-400"
     />
   );
 }

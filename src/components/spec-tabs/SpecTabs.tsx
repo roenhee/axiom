@@ -65,7 +65,6 @@ const TYPE_OPTIONS: { value: keyof typeof SpecTypeStrict; label: string }[] = [
   { value: "FeatureGroup", label: "Feature Group" },
   { value: "Feature", label: "Feature" },
   { value: "Component", label: "Component" },
-  { value: "Tab", label: "Tab" },
   { value: "State", label: "State" },
 ];
 
@@ -74,7 +73,6 @@ const SpecTypeStrict = {
   FeatureGroup: "FeatureGroup",
   Feature: "Feature",
   Component: "Component",
-  Tab: "Tab",
   State: "State",
 } as const;
 
@@ -84,7 +82,6 @@ const TYPE_TONE: Record<SpecType, string> = {
   Feature: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
   Component:
     "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-  Tab: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
   State: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
 };
 
