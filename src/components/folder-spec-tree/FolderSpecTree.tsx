@@ -21,10 +21,12 @@ import { renameFolder } from "@/server/folders/rename-folder";
 import { deleteFolder } from "@/server/folders/delete-folder";
 import { moveFolder } from "@/server/folders/move-folder";
 import { moveSpec } from "@/server/specs/move-spec";
+import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SpecType } from "@/generated/prisma/enums";
+import { AddMenu } from "./AddMenu";
 
 export interface FolderNode {
   id: string;
@@ -95,6 +97,7 @@ export function FolderSpecTree({
   useEffect(() => setMounted(true), []);
 
   const pathname = usePathname();
+  const router = useRouter();
 
   const selectedSpecId = useMemo(() => {
     if (!pathname) return null;
@@ -283,7 +286,9 @@ export function FolderSpecTree({
                   setCreating({ parentId: folder.id });
                 }}
                 onAddSpec={() => {
-                  ensureExpanded(folder.id);
+                  router.push(
+                    `/projects/${projectSlug}/specs/new?folder=${folder.id}`,
+                  );
                 }}
                 projectSlug={projectSlug}
               />
@@ -354,22 +359,30 @@ export function FolderSpecTree({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             구조
           </h2>
-          <div className="flex items-center gap-1">
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => setCreating({ parentId: null })}
-              title="루트에 폴더 추가"
-            >
-              + 폴더
-            </Button>
-            <Link
-              href={`/projects/${projectSlug}/specs/new`}
-              className={buttonVariants({ size: "xs" })}
-            >
-              + Spec
-            </Link>
-          </div>
+          <AddMenu
+            align="right"
+            trigger={
+              <span
+                className={buttonVariants({ size: "xs" })}
+                title="추가"
+              >
+                + 추가
+              </span>
+            }
+            items={[
+              {
+                label: "폴더",
+                icon: "📁",
+                onSelect: () => setCreating({ parentId: null }),
+              },
+              {
+                label: "Spec",
+                icon: "📄",
+                onSelect: () =>
+                  router.push(`/projects/${projectSlug}/specs/new`),
+              },
+            ]}
+          />
         </div>
 
         <div className="flex-1 overflow-y-auto py-1">
@@ -385,10 +398,32 @@ export function FolderSpecTree({
           {renderChildren(null, 0)}
           {isEmpty && (
             <div className="px-4 py-6 text-center text-xs text-zinc-500">
-              아직 폴더/Spec 이 없어요. 위의 &ldquo;+ 폴더&rdquo; 또는
-              &ldquo;+ Spec&rdquo; 으로 시작하세요.
+              아직 폴더/Spec 이 없어요. 아래 &ldquo;+ 추가&rdquo; 로 시작하세요.
             </div>
           )}
+          <div className="px-2 py-1.5">
+            <AddMenu
+              align="left"
+              trigger={
+                <span className="flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300">
+                  + 추가
+                </span>
+              }
+              items={[
+                {
+                  label: "폴더",
+                  icon: "📁",
+                  onSelect: () => setCreating({ parentId: null }),
+                },
+                {
+                  label: "Spec",
+                  icon: "📄",
+                  onSelect: () =>
+                    router.push(`/projects/${projectSlug}/specs/new`),
+                },
+              ]}
+            />
+          </div>
         </div>
       </div>
 
@@ -531,22 +566,29 @@ function FolderRow({
             {folder.name}
           </span>
           <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-            <Link
-              href={`/projects/${projectSlug}/specs/new?folder=${folder.id}`}
-              onClick={onAddSpec}
-              className={buttonVariants({ size: "xs", variant: "ghost" })}
-              title="이 폴더에 Spec 추가"
-            >
-              + S
-            </Link>
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={onAddChild}
-              title="하위 폴더 추가"
-            >
-              +
-            </Button>
+            <AddMenu
+              align="right"
+              trigger={
+                <span
+                  className={buttonVariants({ size: "xs", variant: "ghost" })}
+                  title="이 폴더에 추가"
+                >
+                  +
+                </span>
+              }
+              items={[
+                {
+                  label: "Spec",
+                  icon: "📄",
+                  onSelect: onAddSpec,
+                },
+                {
+                  label: "하위 폴더",
+                  icon: "📁",
+                  onSelect: onAddChild,
+                },
+              ]}
+            />
             <Button
               size="xs"
               variant="ghost"
