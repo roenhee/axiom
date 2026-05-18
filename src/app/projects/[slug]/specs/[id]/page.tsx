@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getSpec } from "@/server/specs/get-spec";
 import { listFolders } from "@/server/folders/list-folders";
 import { getLatestRevisionMarkdown } from "@/server/revisions/get-latest-revision";
+import { getLatestApiSpec } from "@/server/revisions/get-latest-api-spec";
 import { listSpecVersions } from "@/server/spec-versions/list-spec-versions";
 import { listSpecs } from "@/server/specs/list-specs";
 import { listSpecRelations } from "@/server/spec-relations/list-spec-relations";
@@ -30,10 +31,11 @@ export default async function SpecDetailPage({ params }: PageProps) {
   const spec = await getSpec(id);
   if (!spec || spec.project.slug !== slug) notFound();
 
-  const [folders, initialMarkdown, versions, relations, allSpecs] =
+  const [folders, initialMarkdown, initialApiSpec, versions, relations, allSpecs] =
     await Promise.all([
       listFolders(spec.project.id),
       getLatestRevisionMarkdown(spec.id),
+      getLatestApiSpec(spec.id),
       listSpecVersions(spec.id),
       listSpecRelations(spec.id),
       listSpecs(spec.project.id),
@@ -48,11 +50,13 @@ export default async function SpecDetailPage({ params }: PageProps) {
     <SpecTabs
       spec={{
         id: spec.id,
+        projectId: spec.project.id,
         title: spec.title,
         type: spec.type,
         folderId: spec.folderId,
       }}
       initialMarkdown={initialMarkdown}
+      initialApiSpec={initialApiSpec}
       folders={folders}
       versions={versions}
       nextLabel={nextLabel}

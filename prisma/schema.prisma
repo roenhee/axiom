@@ -31,6 +31,7 @@ model User {
   specsAsSlotOwner        Spec[]        @relation("SpecSlotOwner")
   versionsCreated         SpecVersion[]
   revisions               Revision[]
+  attachmentsUploaded     Attachment[]
 
   @@map("users")
 }
@@ -48,9 +49,10 @@ model Project {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt       @map("updated_at")
 
-  folders Folder[]
-  specs   Spec[]
-  members UserRole[]
+  folders     Folder[]
+  specs       Spec[]
+  attachments Attachment[]
+  members     UserRole[]
 
   @@map("projects")
 }
@@ -67,10 +69,11 @@ model Folder {
   isLocked  Boolean  @default(false) @map("is_locked")
   createdAt DateTime @default(now()) @map("created_at")
 
-  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children Folder[] @relation("FolderTree")
-  specs    Spec[]
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      Folder?      @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children    Folder[]     @relation("FolderTree")
+  specs       Spec[]
+  attachments Attachment[]
 
   @@index([projectId, parentId])
   @@map("folders")
@@ -162,6 +165,8 @@ model SpecVersion {
   versionLabel  String     @map("version_label") // "v1", "v2"
   status        SpecStatus @default(Draft)
   markdown      String     @db.Text
+  /// D-040. OpenAPI 3.x YAML/JSON 텍스트. 없으면 null. SpecVersion 발행 시 함께 snapshot.
+  apiSpec       String?    @map("api_spec")    @db.Text
   changeSummary String?    @map("change_summary")
   changeType    String?    @map("change_type")
   createdById   String     @map("created_by_id")
@@ -176,11 +181,13 @@ model SpecVersion {
   @@map("spec_versions")
 }
 
-/// PRD 7.2. Tiptap 자동 저장 1건 = Revision 1개.
+/// PRD 7.2. Tiptap 자동 저장 1건 = Revision 1개. D-040 부터 apiSpec 도 같은 row 에
+/// 함께 snapshot (Body 만 바뀌었어도 직전 apiSpec 그대로 저장 — 매 row 가 full snapshot).
 model Revision {
   id        String   @id @default(cuid())
   specId    String   @map("spec_id")
   markdown  String   @db.Text
+  apiSpec   String?  @map("api_spec") @db.Text
   authorId  String   @map("author_id")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -189,6 +196,31 @@ model Revision {
 
   @@index([specId, createdAt])
   @@map("revisions")
+}
+
+/// D-038. 첨부 파일 — 폴더 트리에 폴더/Spec 과 함께 위치 가능. project + folder
+/// 계층에 들어가며 folderId 가 null 이면 루트. 같은 부모 안에서 order 공유.
+/// 실제 파일은 ${UPLOAD_STORAGE_DIR}/<projectId>/<storedName> 로 저장.
+model Attachment {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  folderId     String?  @map("folder_id")
+  /// 원본 파일명 (사용자 표시용).
+  fileName     String   @map("file_name")
+  /// 디스크에 저장된 이름 (랜덤 + 확장자). 충돌 방지.
+  storedName   String   @map("stored_name")
+  mimeType     String   @map("mime_type")
+  size         Int
+  order        Int      @default(0)
+  uploadedById String   @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder     Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, folderId])
+  @@map("attachments")
 }
 
 enum RoleLevel {

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getProjectBySlug } from "@/server/projects/get-project";
 import { listFolders } from "@/server/folders/list-folders";
 import { listSpecs } from "@/server/specs/list-specs";
+import { listAttachments } from "@/server/attachments/list-attachments";
 import { ResizableShell } from "@/components/workspace-shell/ResizableShell";
 
 interface LayoutProps {
@@ -23,9 +24,10 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
   const project = await getProjectBySlug(slug);
   if (!project) notFound();
 
-  const [folders, specs] = await Promise.all([
+  const [folders, specs, attachments] = await Promise.all([
     listFolders(project.id),
     listSpecs(project.id),
+    listAttachments(project.id),
   ]);
 
   return (
@@ -42,6 +44,7 @@ export default async function ProjectLayout({ params, children }: LayoutProps) {
         parentSpecId: s.parentSpecId,
         order: s.order,
       }))}
+      attachments={attachments}
     >
       {children}
     </ResizableShell>

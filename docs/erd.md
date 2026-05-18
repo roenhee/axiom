@@ -200,6 +200,7 @@ model SpecVersion {
   versionLabel  String     @map("version_label")
   status        SpecStatus @default(Draft)
   markdown      String     @db.Text
+  apiSpec       String?    @map("api_spec") @db.Text  // D-040 OpenAPI YAML/JSON snapshot
   changeSummary String?    @map("change_summary")
   changeType    String?    @map("change_type")
   createdById   String     @map("created_by_id")
@@ -224,6 +225,7 @@ model Revision {
   id        String   @id @default(cuid())
   specId    String   @map("spec_id")
   markdown  String   @db.Text
+  apiSpec   String?  @map("api_spec") @db.Text  // D-040 OpenAPI YAML/JSON 자동 저장 snapshot
   authorId  String   @map("author_id")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -258,6 +260,34 @@ model UserRole {
 
   @@unique([userId, projectId])
   @@map("user_roles")
+}
+```
+
+### Attachment
+
+D-038. 임의 파일 (PDF / 이미지 / zip 등) 첨부. 폴더 트리에 폴더/Spec 과 함께
+배치 — 같은 부모 안에서 `order` 통합 공간 (D-036 연장). 실제 파일은
+`${UPLOAD_STORAGE_DIR}/<projectId>/<storedName>` 에 저장.
+
+```prisma
+model Attachment {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  folderId     String?  @map("folder_id")
+  fileName     String   @map("file_name")    // 원본명 (UI 표시)
+  storedName   String   @map("stored_name")  // 랜덤 + 확장자
+  mimeType     String   @map("mime_type")
+  size         Int
+  order        Int      @default(0)
+  uploadedById String   @map("uploaded_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project    Project @relation(fields: [projectId],   references: [id], onDelete: Cascade)
+  folder     Folder? @relation(fields: [folderId],    references: [id], onDelete: SetNull)
+  uploadedBy User    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId, folderId])
+  @@map("attachments")
 }
 ```
 

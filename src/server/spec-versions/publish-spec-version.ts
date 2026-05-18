@@ -35,9 +35,10 @@ export async function publishSpecVersion(formData: FormData): Promise<void> {
   const latestRevision = await db.revision.findFirst({
     where: { specId },
     orderBy: { createdAt: "desc" },
-    select: { markdown: true },
+    select: { markdown: true, apiSpec: true },
   });
   const markdown = latestRevision?.markdown ?? "";
+  const apiSpec = latestRevision?.apiSpec ?? null;
 
   await db.$transaction(async (tx) => {
     const latestVersion = await tx.specVersion.findFirst({
@@ -53,6 +54,7 @@ export async function publishSpecVersion(formData: FormData): Promise<void> {
         versionLabel: `v${nextN}`,
         status: "Published",
         markdown,
+        apiSpec,
         changeSummary,
         changeType,
         createdById: userId,

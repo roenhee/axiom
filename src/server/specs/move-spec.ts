@@ -10,7 +10,8 @@ import {
 
 type SiblingItem =
   | { kind: "folder"; id: string; order: number; isLocked: boolean }
-  | { kind: "spec"; id: string; order: number };
+  | { kind: "spec"; id: string; order: number }
+  | { kind: "attachment"; id: string; order: number };
 
 /**
  * Spec 의 위치/순서 변경.
@@ -115,8 +116,8 @@ export async function moveSpec(args: {
       });
       nextOrder = (maxSpec._max.order ?? -1) + 1;
     } else {
-      // folder/root 레벨: folder + spec 통합 max + 1.
-      const [maxFolder, maxSpec] = await Promise.all([
+      // folder/root 레벨: folder + spec + attachment 통합 max + 1 (D-038).
+      const [maxFolder, maxSpec, maxAttachment] = await Promise.all([
         db.folder.aggregate({
           where: { projectId: spec.projectId, parentId: targetFolderId },
           _max: { order: true },
@@ -129,9 +130,17 @@ export async function moveSpec(args: {
           },
           _max: { order: true },
         }),
+        db.attachment.aggregate({
+          where: { projectId: spec.projectId, folderId: targetFolderId },
+          _max: { order: true },
+        }),
       ]);
       nextOrder =
-        Math.max(maxFolder._max.order ?? -1, maxSpec._max.order ?? -1) + 1;
+        Math.max(
+          maxFolder._max.order ?? -1,
+          maxSpec._max.order ?? -1,
+          maxAttachment._max.order ?? -1,
+        ) + 1;
     }
 
     await db.spec.update({
@@ -181,8 +190,8 @@ export async function moveSpec(args: {
           });
         }
       } else {
-        // folder/root 레벨: folder + spec 통합 재정렬.
-        const [folders, specs] = await Promise.all([
+        // folder/root 레벨: folder + spec + attachment 통합 재정렬 (D-038).
+        const [folders, specs, attachments] = await Promise.all([
           tx.folder.findMany({
             where: {
               projectId: spec.projectId,
@@ -201,6 +210,14 @@ export async function moveSpec(args: {
             orderBy: [{ order: "asc" }, { title: "asc" }],
             select: { id: true, order: true },
           }),
+          tx.attachment.findMany({
+            where: {
+              projectId: spec.projectId,
+              folderId: targetFolderId,
+            },
+            orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+            select: { id: true, order: true },
+          }),
         ]);
 
         const others: SiblingItem[] = [
@@ -214,6 +231,11 @@ export async function moveSpec(args: {
             kind: "spec" as const,
             id: s.id,
             order: s.order,
+          })),
+          ...attachments.map((a) => ({
+            kind: "attachment" as const,
+            id: a.id,
+            order: a.order,
           })),
         ];
         others.sort((a, b) => {
@@ -249,8 +271,13 @@ export async function moveSpec(args: {
               where: { id: item.id },
               data: { order: i },
             });
-          } else {
+          } else if (item.kind === "spec") {
             await tx.spec.update({
+              where: { id: item.id },
+              data: { order: i },
+            });
+          } else {
+            await tx.attachment.update({
               where: { id: item.id },
               data: { order: i },
             });

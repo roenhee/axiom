@@ -534,6 +534,227 @@ Phase 1-z.
 
 ---
 
+## 2026-05-18 — Spec 본문 에디터 툴바 + Preview 모드
+
+### D-037. Spec 본문 = Tiptap 툴바 + Edit/Preview 토글
+
+배경: 기획자만이 아니라 비-MD 사용자도 본문을 편하게 작성해야 함. 기존 Tiptap
+은 WYSIWYG 이지만 툴바가 없어 굵게/목록/표 같은 흔한 양식 적용이 직관적이지
+않음. 또한 작성 중인 본문이 "최종 출판물" 처럼 보이는지 한 번 더 확인할
+미리보기 수요가 있음.
+
+이후:
+- SpecEditor 에 툴바 추가. 필수 양식 (H1~H3, 굵게, 기울임, 취소선, 글머리/번호
+  목록, 인용, 인라인 코드, 코드 블록, 링크) + 옵션 1 (표 3×3, 체크리스트,
+  구분선). 모든 버튼에 `title` 로 툴팁 제공.
+- 본문 탭 안에 [편집 ⇄ 미리보기] 서브 토글. 미리보기는 react-markdown +
+  remark-gfm + prose CSS — 출판물 형태. 편집 모드에서 입력하면 미리보기
+  상태에 즉시 반영 (autosave 와 별개로 React state 유지).
+- Tiptap 인스턴스는 모드 전환 시 unmount 되지 않도록 hidden 처리 → 작업 중
+  내용 / autosave 타이머 유지.
+
+**이유**: 경로 X (Tiptap 유지 + 툴바 보강) 채택. 비-MD 사용자에게 친절하고
+도입 비용이 가장 작음. 미리보기는 export (Phase 5) prep 단계로도 활용 —
+같은 prose CSS 를 export 렌더링에서도 재사용 가능.
+
+**트레이드오프**: Tiptap 의 편집 화면과 react-markdown 의 preview 화면이 두
+개의 다른 렌더러임 — 미세한 시각 차이 가능. 둘 다 prose 클래스를 쓰므로 큰
+차이 없을 예정.
+
+**관련**:
+- 새 Tiptap extensions 7개 추가 (link, table×4, task-list×2). 모두 공식
+  @tiptap/extension-* 패키지로 reversibility OK.
+- src/components/spec-editor/SpecEditor.tsx — 툴바 + onMarkdownChange prop.
+- src/components/spec-tabs/SpecTabs.tsx — BodyTab 에 모드 토글.
+
+---
+
+## 2026-05-18 — 파일 첨부 / 이미지 업로드
+
+### D-038. 첨부 파일은 트리에 폴더/Spec 과 함께 위치 (folder-level)
+
+배경: 사용자가 .pdf, 이미지, 기타 임의 파일을 프로젝트에 올리고 미리보기·다운로드
+할 수 있어야 함. 또한 Spec 본문에서 이미지 임베드 수요.
+
+이후:
+- 신규 `Attachment` 모델 — `projectId`, `folderId`(nullable), `fileName` 원본,
+  `storedName` 디스크 저장명, `mimeType`, `size`, `order`, `uploadedById`.
+  같은 부모(folderId/root) 안에서 폴더/Spec 과 통합 order 공간 (D-036 연장).
+- 디스크 저장: `${UPLOAD_STORAGE_DIR}/<projectId>/<storedName>` ("방어 1"
+  원칙 — env 로만 경로 주입). 기본 `./uploads/attachments`.
+- API 라우트:
+  - POST `/api/attachments` — multipart 업로드. fields: file, projectId,
+    folderId?. 멤버십 + 폴더 검증. 최대 50MB.
+  - GET `/api/attachments/[id]` — 파일 스트리밍. `?inline=1` 이면
+    Content-Disposition inline (브라우저 임베드용).
+- 폴더 트리:
+  - 우상단 `+` 옆에 업로드 아이콘 추가 → 클릭 시 즉시 파일 선택 → 업로드 →
+    `router.refresh()` 로 트리 반영.
+  - Attachment 는 root(folderId=null) 로 업로드. 트리에 폴더/Spec 과 같은
+    행 단위로 표시 (mime 별 아이콘).
+  - DnD 로 이동은 후속 — 지금은 행 표시 / 클릭 navigate / 삭제만.
+- 우측 패널 미리보기: `/projects/<slug>/attachments/<id>` 라우트.
+  - 이미지 → `<img>`, PDF → `<iframe>`, 비디오 → `<video>`, 그 외 → 다운로드
+    안내. 모두 prose CSS 와 무관한 native preview.
+- 에디터 이미지 업로드: 툴바 이미지 아이콘 → 파일 선택 → 같은
+  `/api/attachments` 엔드포인트 호출 → 응답 URL 로 `setImage({src,alt})`.
+  새 `@tiptap/extension-image` 패키지 추가. 업로드한 이미지도 첨부로 트리에
+  등장 (별도 hidden 플래그 없음 — 사용자가 필요 시 트리에서 정리).
+
+**이유**: folder-level 배치(C) 가 D-036 의 "같은 부모 통합 order" 와 자연
+스럽게 묶임. project-level(A) 분리 시 별도 첨부 패널이 필요해 UI 복잡도 증가.
+디스크 + DB row 조합은 (외부 호스팅 금지) 정책과 일관, 사내 서버 이전 시
+파일 dir 만 옮기면 되어 부담 작음.
+
+**트레이드오프**: 디스크 / DB row 양쪽 정리 필요 (delete 시 unlink 실패해도
+DB 삭제 진행 — orphan 파일은 추후 cleanup 작업). 이미지 임베드 시 트리에
+첨부가 노출되어 시각적 noise 가능 — 사용자 정리 책임.
+
+**관련**:
+- `prisma/schema.prisma` — `Attachment` model. 마이그레이션
+  `20260518025756_phase1_attachment`.
+- `.env.example` — `UPLOAD_STORAGE_DIR` 신규.
+- `src/server/attachments/{list,get,delete,upload-paths}.ts`
+- `src/app/api/attachments/route.ts` (POST), `/[id]/route.ts` (GET).
+- `src/components/folder-spec-tree/FolderSpecTree.tsx` — UploadButton,
+  AttachmentRow, 통합 order merge.
+- `src/components/attachment-view/AttachmentView.tsx` —
+  `/projects/<slug>/attachments/<id>` 라우트의 우측 패널 컴포넌트.
+- `src/components/spec-editor/SpecEditor.tsx` — `ImageUploadButton` 툴바,
+  `@tiptap/extension-image` 등록.
+
+---
+
+## 2026-05-18 — PDF / PPTX 첨부 미리보기 + 페이지 nav
+
+### D-039. PDF=react-pdf, PPTX=pptx-preview (client-only)
+
+배경: 사용자가 첨부한 PDF / PPTX 를 우측 스펙 패널에서 페이지 단위로 미리보기.
+브라우저 native iframe 은 PDF 만 지원 + chrome 디자인 일관성 부족, PPTX 는 미지원.
+외부 호스팅/서비스 금지 (D-008) 라 self-host 가능한 client lib 필요.
+
+이후:
+- PDF: `react-pdf` v10 + `pdfjs-dist` v5.4.296 (react-pdf 내장 버전 정렬).
+  - Worker: `public/pdf.worker.min.mjs` 로 self-host. `scripts/copy-pdf-worker.mjs`
+    가 `postinstall` 에서 `node_modules` → `public/` 으로 복사.
+  - 우리 디자인의 prev/next 버튼 + 페이지 카운터 (`X / Y`).
+- PPTX: `pptx-preview` v1.0.7 (jszip + echarts 기반 순수 프론트엔드).
+  - `mode: "slide"` 단일 슬라이드 뷰 + 우리 prev/next 버튼.
+  - 라이브러리 내부 페이지네이션은 CSS 로 숨김 (`.pptx-preview-host`).
+- 두 컴포넌트 모두 `next/dynamic` 로 `ssr:false` 임포트 — 라이브러리들이
+  SSR 단계에서 `DOMMatrix` / `canvas` / `window` 참조 → 서버 렌더 오류.
+
+**이유**: react-pdf 는 Mozilla 공식 pdfjs 의 React 래퍼로 가장 안정적.
+pptx-preview 는 외부 서비스 의존 없이 브라우저에서 동작하는 거의 유일한 옵션.
+PPTX 의 일부 fidelity 손실 (복잡한 애니메이션 / 폰트) 은 다운로드로 우회.
+
+**트레이드오프**:
+- 번들 크기: pdfjs-dist ~1MB + pptx-preview/echarts ~2MB 추가. dynamic 임포트로
+  필요 시점에만 로드 — 초기 페이지 영향 작음.
+- 워커 파일 복사 단계 추가 (`postinstall` 체인). 신규 클론 시 `npm install`
+  로 자동 처리됨.
+- npm 의 `pptxjs` 패키지는 placeholder/dummy (v0.0.0) 라 미사용 — 실제로 동작하는
+  `pptx-preview` 채택.
+
+**관련**:
+- `src/components/attachment-view/PdfPreview.tsx`
+- `src/components/attachment-view/PptxPreview.tsx`
+- `src/components/attachment-view/AttachmentView.tsx` (dynamic import)
+- `scripts/copy-pdf-worker.mjs` + `package.json` postinstall.
+- `src/app/globals.css` — `.pptx-preview-host` 내부 pagination 숨김 규칙.
+
+---
+
+## 2026-05-18 — Spec 에 API 명세 탭 + 자동 발행
+
+### D-040. Spec 본문과 별개로 OpenAPI YAML 보관 + 변경 시 자동 발행
+
+배경: 기획자가 Body 에 자유 마크다운으로 적던 API 정보를 구조화. Phase 5
+Developer Export 시 OpenAPI 그대로 추출되게, Phase 4 AI Runner 가 endpoint
+구조를 정확히 읽도록.
+
+이후:
+- Spec 우측 패널에 새 "API" 탭 (모든 SpecType 노출 — Component/State 도 필요 시
+  내부 API 명세 적을 수 있음).
+- 탭 안에 [편집 ⇄ 미리보기] 서브 토글:
+  - 편집: CodeMirror v6 + `@codemirror/lang-yaml` (YAML 작성, 줄 번호 / fold).
+  - 미리보기: `swagger-ui-react` (Swagger UI 표준 렌더). SSR window 참조라
+    `next/dynamic({ ssr: false })`.
+- 저장 정책:
+  - autosave 30초 debounce / blur (Body 와 같은 패턴).
+  - `Revision.apiSpec` 컬럼 추가 — Body 만 바뀌었어도 직전 apiSpec 그대로
+    carry-forward (매 row 가 full snapshot).
+  - autosave 시 마지막 SpecVersion 의 apiSpec 과 다르면 **자동으로 새
+    SpecVersion 발행** (`changeType="api"`, `changeSummary="API 스펙 자동
+    발행 vN"`). Body 는 수동 발행 그대로.
+- 역할 분리 가이드:
+  > **Body** = "왜 이 기능이 필요한지, 어떤 흐름인지" — 사람을 위한 설명
+  > **API** = "어떤 endpoint 로 어떤 데이터를 주고받는지" — 기계 + 개발자 명세
+
+**이유**: Swagger UI = 업계 표준. CodeMirror = 가벼운 ESM YAML 에디터.
+API 변경은 의미상 큰 변화 → 자동 발행이 사용자 입장에서 직관적. 반면 Body 는
+자유 메모처럼 자주 바뀌어 매번 발행하면 noise.
+
+**트레이드오프**:
+- 번들: swagger-ui-react ~700KB, @uiw/react-codemirror + lang-yaml ~400KB,
+  yaml parser ~50KB. dynamic 임포트로 API 탭 진입 시점에만 로드.
+- Revision 마다 apiSpec 컬럼 carry-forward → 디스크 약간 redundancy. 트레이드
+  오프로 단순한 query (한 row 가 한 시점의 full snapshot).
+- API 자동 발행으로 SpecVersion 가 늘 수 있음. 30초 debounce + "마지막 발행본과
+  다를 때만" 조건으로 spam 방지.
+
+**관련**:
+- Schema: `Revision.apiSpec`, `SpecVersion.apiSpec` 추가. 마이그레이션
+  `20260518061057_phase1_api_spec`.
+- `src/server/revisions/update-api-spec.ts` — autosave + auto-publish.
+- `src/server/revisions/get-latest-api-spec.ts`
+- `src/components/api-editor/ApiEditor.tsx` — CodeMirror.
+- `src/components/api-editor/ApiSwaggerView.tsx` — Swagger UI (ssr:false).
+- `src/components/spec-tabs/SpecTabs.tsx` — `ApiTab` 컴포넌트.
+
+---
+
+## 2026-05-18 — Spec 본문 템플릿
+
+### D-041. 빈 본문일 때 사용자가 직접 템플릿을 골라 삽입 가능
+
+배경: 새 Spec 만들면 본문이 빈 상태로 시작 — 사용자가 "어떻게 채워야 할지"
+막막함. 표준 양식 (목적/시나리오/검증/실패 모드 등) 을 매번 처음부터 적기 부담.
+
+이후:
+- `src/lib/spec-templates.ts` — `SPEC_TEMPLATES` 상수 (현재 2 개: "기능 명세서",
+  "컴포넌트 명세서").
+- 빈 본문일 때 (`editor.isEmpty === true`) 편집 영역에 `TemplatePicker` overlay
+  표시. 사용자가 클릭하면 `editor.commands.setContent(markdown)` 로 삽입 + 자동
+  저장 트리거.
+- SpecType 과 매칭 X — 어떤 spec 에서든 자유 선택 (사용자 결정).
+- 본문을 다 지우면 (`editor.isEmpty` 다시 true) picker 가 재등장 — 재선택 가능.
+- 자동 적용 안 함 (Spec 생성 시 빈 상태 유지) — 사용자가 "비워두기" 도 의도일 수
+  있어 강제하지 않음.
+
+**이유**: 가장 가벼운 형태로 가치 확보 (코드 상수 + overlay). 매칭 안 하는 이유는
+사용자가 다양한 spec 에 같은 양식을 쓰거나, 같은 타입에서도 다른 양식을 쓰고
+싶을 수 있어 자유도가 더 중요하다고 판단.
+
+**트레이드오프**: 템플릿 종류 / 내용은 개발자만 수정 가능. 팀별 / 프로젝트별
+다른 양식이 필요하면 따로 PR 필요.
+
+**후속 작업 (TODO — Phase 5 운영 도구 단계)**:
+- **마스터 계정용 admin 페이지에서 템플릿 추가/편집 기능 필요**. 현재는 코드
+  상수로만 관리되어 새 템플릿 추가하려면 코드 수정 + 배포 필요.
+- 필요한 작업:
+  - DB 테이블 `SpecTemplate` 신규 (id, name, description, markdown, createdById, updatedAt)
+  - admin 권한 사용자만 접근하는 `/admin/templates` 페이지 — 목록 / 생성 / 편집 / 삭제 / 순서
+  - 마이그레이션 시 현재 코드 상수 → DB seed 로 옮김
+- 호환: `SPEC_TEMPLATES` 를 fallback 으로 두고 DB 가 비어있으면 코드 상수 사용 — 점진적 이행 가능.
+
+**관련**:
+- `src/lib/spec-templates.ts` — 상수 + 타입 정의.
+- `src/components/spec-editor/TemplatePicker.tsx` — picker UI.
+- `src/components/spec-editor/SpecEditor.tsx` — `isEmpty` 상태 + overlay 렌더링.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

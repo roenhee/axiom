@@ -8,7 +8,7 @@ export default async function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
       <h1 className="text-3xl font-semibold tracking-tight">
-        Spec-Design-Prototype Hub
+        Project Axiom
       </h1>
       <p className="text-sm text-zinc-500">Phase 1 — Spec 계층 + Version</p>
       <Link href="/projects" className={buttonVariants()}>

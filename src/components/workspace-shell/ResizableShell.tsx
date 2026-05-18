@@ -1,14 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
+import { Pencil, Trash2 } from "lucide-react";
 import {
   FolderSpecTree,
   type FolderNode,
   type SpecNode,
+  type AttachmentNode,
 } from "@/components/folder-spec-tree/FolderSpecTree";
 import { CenterPane } from "@/components/center-pane/CenterPane";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { updateProject } from "@/server/projects/update-project";
+import { archiveProject } from "@/server/projects/archive-project";
 import { ResizeHandle } from "./ResizeHandle";
 
 interface Props {
@@ -17,6 +25,7 @@ interface Props {
   projectSlug: string;
   folders: FolderNode[];
   specs: SpecNode[];
+  attachments: AttachmentNode[];
   children: React.ReactNode;
 }
 
@@ -42,6 +51,7 @@ export function ResizableShell({
   projectSlug,
   folders,
   specs,
+  attachments,
   children,
 }: Props) {
   const [leftW, setLeftW] = useState(DEFAULT_LEFT);
@@ -80,24 +90,11 @@ export function ResizableShell({
   return (
     <div className="flex h-screen flex-col bg-white dark:bg-zinc-950">
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-5 py-2.5 dark:border-zinc-800">
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-zinc-400">
-            <Link href="/projects" className="hover:text-zinc-600 hover:underline">
-              프로젝트
-            </Link>
-            <span className="mx-1.5">/</span>
-            <span>{projectSlug}</span>
-          </div>
-          <h1 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-            {projectName}
-          </h1>
-        </div>
-        <Link
-          href={`/projects/${projectSlug}/settings`}
-          className={buttonVariants({ variant: "outline", size: "xs" })}
-        >
-          설정
-        </Link>
+        <ProjectTitle
+          projectId={projectId}
+          projectName={projectName}
+          projectSlug={projectSlug}
+        />
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -110,6 +107,7 @@ export function ResizableShell({
             projectSlug={projectSlug}
             folders={folders}
             specs={specs}
+            attachments={attachments}
           />
         </aside>
 
@@ -145,4 +143,199 @@ export function ResizableShell({
       </div>
     </div>
   );
+}
+
+// ============================================================
+// ProjectTitle — header 의 breadcrumb / 제목 + 편집 / 삭제 아이콘
+// 기존 /settings 페이지 대체 (D-042).
+// ============================================================
+
+function ProjectTitle({
+  projectId,
+  projectName,
+  projectSlug,
+}: {
+  projectId: string;
+  projectName: string;
+  projectSlug: string;
+}) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  function handleConfirmArchive() {
+    setConfirmOpen(false);
+    startTransition(async () => {
+      try {
+        await archiveProject(projectId);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "아카이브 실패");
+      }
+    });
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-zinc-400">
+          <Link href="/projects" className="hover:text-zinc-600 hover:underline">
+            프로젝트
+          </Link>
+          <span className="mx-1.5">/</span>
+          <span>{projectSlug}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <h1 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            {projectName}
+          </h1>
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            disabled={pending}
+            title="프로젝트 이름 편집"
+            aria-label="프로젝트 이름 편집"
+            className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            disabled={pending}
+            title="이 프로젝트 아카이브"
+            aria-label="이 프로젝트 아카이브"
+            className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <ProjectMetaDialog
+        open={editOpen}
+        projectId={projectId}
+        initialName={projectName}
+        onClose={() => setEditOpen(false)}
+      />
+      <ConfirmDialog
+        open={confirmOpen}
+        title="이 프로젝트를 아카이브할까요?"
+        message={
+          <>
+            <strong>{projectName}</strong> 프로젝트가 목록에서 사라집니다.
+            데이터는 보존되며 DB 수동 조작으로 복구 가능합니다. slug 는 그대로
+            점유합니다.
+          </>
+        }
+        confirmText="아카이브"
+        destructive
+        onConfirm={handleConfirmArchive}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// ProjectMetaDialog — 프로젝트 이름 편집 모달
+// SpecMetaDialog 와 같은 패턴 (portal + body scroll lock + ESC 닫기).
+// ============================================================
+
+function ProjectMetaDialog({
+  open,
+  projectId,
+  initialName,
+  onClose,
+}: {
+  open: boolean;
+  projectId: string;
+  initialName: string;
+  onClose: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, onClose]);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    fd.set("id", projectId);
+    startTransition(async () => {
+      try {
+        await updateProject(fd);
+        onClose();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : "저장 실패");
+      }
+    });
+  }
+
+  if (!mounted || !open) return null;
+
+  const content = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="project-meta-dialog-title"
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+    >
+      <div
+        aria-hidden="true"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
+      <div className="relative w-[min(440px,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+        <h2
+          id="project-meta-dialog-title"
+          className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+        >
+          프로젝트 이름 편집
+        </h2>
+        <form onSubmit={handleSubmit} className="mt-3 space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-project-name">이름</Label>
+            <Input
+              id="edit-project-name"
+              name="name"
+              required
+              maxLength={100}
+              defaultValue={initialName}
+              disabled={pending}
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              disabled={pending}
+            >
+              취소
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              저장
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  return createPortal(content, document.body);
 }

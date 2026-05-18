@@ -1,8 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
+import { createPortal } from "react-dom";
+import { Pencil, Trash2 } from "lucide-react";
 import { SpecEditor } from "@/components/spec-editor/SpecEditor";
 import { MarkdownView } from "@/components/markdown/MarkdownView";
+import { ApiEditor } from "@/components/api-editor/ApiEditor";
+// Swagger UI 와 그 CSS 는 SSR 단계에서 window 참조 → ssr:false 로 client-only.
+const ApiSwaggerView = dynamic(
+  () =>
+    import("@/components/api-editor/ApiSwaggerView").then((m) => ({
+      default: m.ApiSwaggerView,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-md border border-zinc-200 px-4 py-10 text-center text-xs text-zinc-500 dark:border-zinc-800">
+        Swagger UI 로딩 중…
+      </div>
+    ),
+  },
+);
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { updateSpec } from "@/server/specs/update-spec";
 import { deleteSpec } from "@/server/specs/delete-spec";
 import { publishSpecVersion } from "@/server/spec-versions/publish-spec-version";
@@ -37,6 +57,7 @@ interface OtherSpec {
 
 interface SpecData {
   id: string;
+  projectId: string;
   title: string;
   type: SpecType;
   folderId: string | null;
@@ -45,6 +66,7 @@ interface SpecData {
 interface Props {
   spec: SpecData;
   initialMarkdown: string;
+  initialApiSpec: string;
   folders: FolderNode[];
   versions: VersionItem[];
   nextLabel: string;
@@ -52,13 +74,23 @@ interface Props {
   otherSpecs: OtherSpec[];
 }
 
-type TabKey = "body" | "meta" | "relations" | "history";
+type TabKey = "body" | "api" | "relations" | "history";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "body", label: "본문" },
-  { key: "meta", label: "메타" },
+  { key: "api", label: "API" },
   { key: "relations", label: "관계" },
   { key: "history", label: "히스토리" },
+];
+
+const CHANGE_TYPE_OPTIONS = [
+  { value: "", label: "(미지정)" },
+  { value: "feature", label: "feature — 새 기능" },
+  { value: "fix", label: "fix — 오류 수정" },
+  { value: "refactor", label: "refactor — 재구성" },
+  { value: "docs", label: "docs — 문서/설명" },
+  { value: "breaking", label: "breaking — 호환 깨짐" },
+  { value: "chore", label: "chore — 기타" },
 ];
 
 const TYPE_OPTIONS: { value: keyof typeof SpecTypeStrict; label: string }[] = [
@@ -113,6 +145,7 @@ const VERSION_STATUS_TONE: Record<SpecStatus, string> = {
 export function SpecTabs({
   spec,
   initialMarkdown,
+  initialApiSpec,
   folders,
   versions,
   nextLabel,
@@ -150,9 +183,15 @@ export function SpecTabs({
 
       <div className="flex-1 overflow-y-auto">
         {active === "body" && (
-          <BodyTab specId={spec.id} initialMarkdown={initialMarkdown} />
+          <BodyTab
+            specId={spec.id}
+            projectId={spec.projectId}
+            initialMarkdown={initialMarkdown}
+          />
         )}
-        {active === "meta" && <MetaTab spec={spec} folders={folders} />}
+        {active === "api" && (
+          <ApiTab specId={spec.id} initialApiSpec={initialApiSpec} />
+        )}
         {active === "relations" && (
           <RelationsTab specId={spec.id} relations={relations} otherSpecs={otherSpecs} />
         )}
@@ -176,129 +215,347 @@ function SpecHeader({ spec, folders }: { spec: SpecData; folders: FolderNode[] }
   const folder = spec.folderId
     ? folders.find((f) => f.id === spec.folderId)
     : null;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  function handleConfirmDelete() {
+    setConfirmOpen(false);
+    startTransition(async () => {
+      try {
+        await deleteSpec(spec.id);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "삭제 실패");
+      }
+    });
+  }
+
   return (
     <div className="shrink-0 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-            TYPE_TONE[spec.type],
-          )}
-        >
-          {spec.type}
-        </span>
-        {folder && (
-          <span className="text-[10px] text-zinc-400">📁 {folder.name}</span>
-        )}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "rounded px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                TYPE_TONE[spec.type],
+              )}
+            >
+              {spec.type}
+            </span>
+            {folder && (
+              <span className="text-[10px] text-zinc-400">📁 {folder.name}</span>
+            )}
+          </div>
+          <h2 className="mt-1 text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            {spec.title}
+          </h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            disabled={pending}
+            title="메타 편집 (제목 / 타입 / 폴더)"
+            aria-label="메타 편집"
+            className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            disabled={pending}
+            title="이 Spec 삭제"
+            aria-label="이 Spec 삭제"
+            className="flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
-      <h2 className="mt-1 text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-        {spec.title}
-      </h2>
+      <ConfirmDialog
+        open={confirmOpen}
+        title="이 Spec 을 삭제할까요?"
+        message={
+          <>
+            <strong>{spec.title}</strong> 그리고 연결된 Version / Revision /
+            관계 정보가 영구 삭제됩니다.
+          </>
+        }
+        confirmText="삭제"
+        destructive
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
+      <SpecMetaDialog
+        open={editOpen}
+        spec={spec}
+        folders={folders}
+        onClose={() => setEditOpen(false)}
+      />
     </div>
   );
 }
 
 // ============================================================
-// Body tab — Tiptap editor
+// SpecMetaDialog — 제목 / 타입 / 폴더 편집 모달 (구 MetaTab 대체)
 // ============================================================
 
-function BodyTab({
-  specId,
-  initialMarkdown,
-}: {
-  specId: string;
-  initialMarkdown: string;
-}) {
-  return (
-    <div className="p-4">
-      <SpecEditor specId={specId} initialMarkdown={initialMarkdown} />
-    </div>
-  );
-}
-
-// ============================================================
-// Meta tab — title / type / folder + Spec 삭제
-// ============================================================
-
-function MetaTab({
+function SpecMetaDialog({
+  open,
   spec,
   folders,
+  onClose,
 }: {
+  open: boolean;
   spec: SpecData;
   folders: FolderNode[];
+  onClose: () => void;
 }) {
-  const deleteAction = deleteSpec.bind(null, spec.id);
+  const [mounted, setMounted] = useState(false);
+  const [pending, startTransition] = useTransition();
 
-  return (
-    <div className="space-y-6 p-4">
-      <form action={updateSpec} className="space-y-4">
-        <input type="hidden" name="id" value={spec.id} />
+  useEffect(() => setMounted(true), []);
 
-        <div className="space-y-1.5">
-          <Label htmlFor="title">제목</Label>
-          <Input
-            id="title"
-            name="title"
-            required
-            maxLength={200}
-            defaultValue={spec.title}
-          />
-        </div>
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, onClose]);
 
-        <div className="space-y-1.5">
-          <Label htmlFor="type">타입</Label>
-          <select
-            id="type"
-            name="type"
-            required
-            defaultValue={spec.type}
-            className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
-          >
-            {TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    fd.set("id", spec.id);
+    startTransition(async () => {
+      try {
+        await updateSpec(fd);
+        onClose();
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : "저장 실패");
+      }
+    });
+  }
 
-        <div className="space-y-1.5">
-          <Label htmlFor="folderId">폴더</Label>
-          <select
-            id="folderId"
-            name="folderId"
-            defaultValue={spec.folderId ?? ""}
-            className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
-          >
-            <option value="">(루트)</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-zinc-400">
-            좌측 트리에서 드래그로 옮길 수도 있습니다.
-          </p>
-        </div>
+  if (!mounted || !open) return null;
 
-        <Button type="submit">저장</Button>
-      </form>
-
-      <div className="rounded-md border border-red-200 p-4 dark:border-red-900">
-        <h3 className="text-sm font-medium">Spec 삭제</h3>
-        <p className="mt-1 text-xs text-zinc-500">
-          연결된 Version / Revision / 관계 정보도 영구 삭제됩니다.
-        </p>
-        <form action={deleteAction} className="mt-3">
-          <Button type="submit" variant="destructive" size="sm">
-            이 Spec 삭제
-          </Button>
+  const content = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="spec-meta-dialog-title"
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+    >
+      <div
+        aria-hidden="true"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
+      <div className="relative w-[min(440px,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+        <h2
+          id="spec-meta-dialog-title"
+          className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+        >
+          메타 편집
+        </h2>
+        <form onSubmit={handleSubmit} className="mt-3 space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-spec-title">제목</Label>
+            <Input
+              id="edit-spec-title"
+              name="title"
+              required
+              maxLength={200}
+              defaultValue={spec.title}
+              disabled={pending}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-spec-type">타입</Label>
+            <select
+              id="edit-spec-type"
+              name="type"
+              required
+              defaultValue={spec.type}
+              disabled={pending}
+              className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
+            >
+              {TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-spec-folder">폴더</Label>
+            <select
+              id="edit-spec-folder"
+              name="folderId"
+              defaultValue={spec.folderId ?? ""}
+              disabled={pending}
+              className="flex h-9 w-full rounded-md border border-zinc-300 bg-white px-3 py-1 text-sm shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
+            >
+              <option value="">(루트)</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              disabled={pending}
+            >
+              취소
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              저장
+            </Button>
+          </div>
         </form>
       </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 }
+
+// ============================================================
+// Body tab — Edit (Tiptap) / Preview (react-markdown) 토글 (D-037)
+// ============================================================
+
+function BodyTab({
+  specId,
+  projectId,
+  initialMarkdown,
+}: {
+  specId: string;
+  projectId: string;
+  initialMarkdown: string;
+}) {
+  const [mode, setMode] = useState<"edit" | "preview">("preview");
+  const [currentMd, setCurrentMd] = useState(initialMarkdown);
+
+  return (
+    <div className="space-y-3 p-4">
+      <div className="flex items-center gap-1 rounded-md border border-zinc-200 p-0.5 text-xs dark:border-zinc-800">
+        <BodyModeButton
+          active={mode === "preview"}
+          onClick={() => setMode("preview")}
+        >
+          미리보기
+        </BodyModeButton>
+        <BodyModeButton
+          active={mode === "edit"}
+          onClick={() => setMode("edit")}
+        >
+          편집
+        </BodyModeButton>
+      </div>
+      {/* SpecEditor 는 mode 와 관계없이 mount 유지 — Tiptap 인스턴스 재생성 회피.
+          preview 일 땐 화면에서 숨김만 처리 (저장 / autosave 상태 유지). */}
+      <div className={cn(mode !== "edit" && "hidden")}>
+        <SpecEditor
+          specId={specId}
+          projectId={projectId}
+          initialMarkdown={initialMarkdown}
+          onMarkdownChange={setCurrentMd}
+        />
+      </div>
+      {mode === "preview" && (
+        <div className="rounded-md border border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          <MarkdownView markdown={currentMd} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// API tab — Edit (CodeMirror YAML) / Preview (Swagger UI) 토글 (D-040)
+// API 변경 → autosave + 자동 발행. Body 는 수동 발행 그대로.
+// ============================================================
+
+function ApiTab({
+  specId,
+  initialApiSpec,
+}: {
+  specId: string;
+  initialApiSpec: string;
+}) {
+  const [mode, setMode] = useState<"edit" | "preview">("preview");
+  const [currentSpec, setCurrentSpec] = useState(initialApiSpec);
+
+  return (
+    <div className="space-y-3 p-4">
+      <div className="flex items-center gap-1 rounded-md border border-zinc-200 p-0.5 text-xs dark:border-zinc-800">
+        <BodyModeButton
+          active={mode === "preview"}
+          onClick={() => setMode("preview")}
+        >
+          미리보기 (Swagger UI)
+        </BodyModeButton>
+        <BodyModeButton
+          active={mode === "edit"}
+          onClick={() => setMode("edit")}
+        >
+          편집 (YAML)
+        </BodyModeButton>
+      </div>
+      <div className={cn(mode !== "edit" && "hidden")}>
+        <ApiEditor
+          specId={specId}
+          initialApiSpec={initialApiSpec}
+          onApiSpecChange={setCurrentSpec}
+        />
+      </div>
+      {mode === "preview" && <ApiSwaggerView apiSpec={currentSpec} />}
+    </div>
+  );
+}
+
+function BodyModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex-1 rounded px-3 py-1 transition",
+        active
+          ? "bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+          : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 
 // ============================================================
 // Relations tab
@@ -468,12 +725,17 @@ function HistoryTab({
           placeholder="변경 요약 (선택)"
           className="h-8 text-xs"
         />
-        <Input
+        <select
           name="changeType"
-          maxLength={50}
-          placeholder="변경 유형 (feature / fix / refactor …)"
-          className="h-8 text-xs"
-        />
+          defaultValue=""
+          className="flex h-8 w-full rounded-md border border-zinc-300 bg-white px-2 text-xs shadow-sm transition focus-visible:border-zinc-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 dark:border-zinc-700 dark:bg-zinc-950 dark:focus-visible:ring-zinc-700"
+        >
+          {CHANGE_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
         <Button type="submit" size="sm">
           {nextLabel} 발행
         </Button>

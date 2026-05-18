@@ -6,7 +6,8 @@ import { getCurrentUserId } from "@/lib/auth/current-user";
 
 type SiblingItem =
   | { kind: "folder"; id: string; order: number; isLocked: boolean }
-  | { kind: "spec"; id: string; order: number };
+  | { kind: "spec"; id: string; order: number }
+  | { kind: "attachment"; id: string; order: number };
 
 /**
  * 폴더의 부모/순서 변경.
@@ -78,8 +79,8 @@ export async function moveFolder(args: {
   }
 
   if (args.newOrder === undefined) {
-    // 끝에 추가 — folder + spec 통합 max + 1.
-    const [maxFolderOrder, maxSpecOrder] = await Promise.all([
+    // 끝에 추가 — folder + spec + attachment 통합 max + 1 (D-038).
+    const [maxFolderOrder, maxSpecOrder, maxAttachmentOrder] = await Promise.all([
       db.folder.aggregate({
         where: { projectId: folder.projectId, parentId: args.newParentId },
         _max: { order: true },
@@ -92,11 +93,16 @@ export async function moveFolder(args: {
         },
         _max: { order: true },
       }),
+      db.attachment.aggregate({
+        where: { projectId: folder.projectId, folderId: args.newParentId },
+        _max: { order: true },
+      }),
     ]);
     const nextOrder =
       Math.max(
         maxFolderOrder._max.order ?? -1,
         maxSpecOrder._max.order ?? -1,
+        maxAttachmentOrder._max.order ?? -1,
       ) + 1;
 
     await db.folder.update({
@@ -111,8 +117,8 @@ export async function moveFolder(args: {
         data: { parentId: args.newParentId },
       });
 
-      // 2. 같은 부모 안 형제들 (folder + root-level spec) — 활성 폴더 제외.
-      const [folders, specs] = await Promise.all([
+      // 2. 같은 부모 안 형제들 (folder + root-level spec + attachment) — 활성 폴더 제외.
+      const [folders, specs, attachments] = await Promise.all([
         tx.folder.findMany({
           where: {
             projectId: folder.projectId,
@@ -131,6 +137,14 @@ export async function moveFolder(args: {
           orderBy: [{ order: "asc" }, { title: "asc" }],
           select: { id: true, order: true },
         }),
+        tx.attachment.findMany({
+          where: {
+            projectId: folder.projectId,
+            folderId: args.newParentId,
+          },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          select: { id: true, order: true },
+        }),
       ]);
 
       const others: SiblingItem[] = [
@@ -144,6 +158,11 @@ export async function moveFolder(args: {
           kind: "spec" as const,
           id: s.id,
           order: s.order,
+        })),
+        ...attachments.map((a) => ({
+          kind: "attachment" as const,
+          id: a.id,
+          order: a.order,
         })),
       ];
       others.sort((a, b) => {
@@ -181,8 +200,13 @@ export async function moveFolder(args: {
             where: { id: item.id },
             data: { order: i },
           });
-        } else {
+        } else if (item.kind === "spec") {
           await tx.spec.update({
+            where: { id: item.id },
+            data: { order: i },
+          });
+        } else {
+          await tx.attachment.update({
             where: { id: item.id },
             data: { order: i },
           });

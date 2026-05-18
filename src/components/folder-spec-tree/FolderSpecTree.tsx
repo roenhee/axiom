@@ -52,8 +52,16 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
+  Upload,
+  File as FileIcon,
+  FileText,
+  FileImage,
+  FileVideo,
+  FileAudio,
   type LucideIcon,
 } from "lucide-react";
+import { deleteAttachment } from "@/server/attachments/delete-attachment";
+import { moveAttachment } from "@/server/attachments/move-attachment";
 
 export interface FolderNode {
   id: string;
@@ -72,15 +80,26 @@ export interface SpecNode {
   order: number;
 }
 
+export interface AttachmentNode {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  folderId: string | null;
+  order: number;
+}
+
 interface Props {
   projectId: string;
   projectSlug: string;
   folders: FolderNode[];
   specs: SpecNode[];
+  attachments: AttachmentNode[];
 }
 
 const FOLDER_PREFIX = "folder:";
 const SPEC_PREFIX = "spec:";
+const ATTACHMENT_PREFIX = "attachment:";
 const GAP_PREFIX = "gap:";
 
 /**
@@ -146,6 +165,7 @@ export function FolderSpecTree({
   projectSlug,
   folders,
   specs,
+  attachments,
 }: Props) {
   // dnd-kit 은 useDraggable/useDroppable 마다 자체 id 카운터를 증가시키는데,
   // 이 카운터가 server-render 와 client-hydration 사이에 일치하지 않아
@@ -197,6 +217,22 @@ export function FolderSpecTree({
     return map;
   }, [specs]);
 
+  // Attachment 는 folderId 로 그룹 (폴더/Spec 과 같은 통합 order 공간 D-036/D-038).
+  const attachmentsByFolderId = useMemo(() => {
+    const map = new Map<string | null, AttachmentNode[]>();
+    for (const a of attachments) {
+      const arr = map.get(a.folderId) ?? [];
+      arr.push(a);
+      map.set(a.folderId, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort(
+        (a, b) => a.order - b.order || a.fileName.localeCompare(b.fileName),
+      );
+    }
+    return map;
+  }, [attachments]);
+
   // parentSpecId 있는 spec 을 부모 spec 으로 그룹 (트리 nesting).
   const specsByParentSpecId = useMemo(() => {
     const map = new Map<string, SpecNode[]>();
@@ -220,6 +256,11 @@ export function FolderSpecTree({
   const specById = useMemo(
     () => new Map(specs.map((s) => [s.id, s])),
     [specs],
+  );
+
+  const attachmentById = useMemo(
+    () => new Map(attachments.map((a) => [a.id, a])),
+    [attachments],
   );
 
   // 선택된 spec 의 모든 조상 폴더/Spec id (자동 펼침용).
@@ -256,14 +297,36 @@ export function FolderSpecTree({
     new Map(),
   );
 
+  // 한 번 자동(ancestor)으로 펼쳐졌던 id 는 sticky 로 유지 — selection 이 바뀌어
+  // 더 이상 조상이 아니게 되어도 자동으로 접지 않음. 사용자가 수동 toggle 로만 닫힘.
+  const [stickyAutoExpanded, setStickyAutoExpanded] = useState<Set<string>>(
+    new Set(),
+  );
+
+  useEffect(() => {
+    if (ancestorIds.size === 0) return;
+    setStickyAutoExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of ancestorIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [ancestorIds]);
+
   const expanded = useMemo(() => {
     const set = new Set<string>(ancestorIds);
+    for (const id of stickyAutoExpanded) set.add(id);
     for (const [id, on] of manualToggled) {
       if (on) set.add(id);
       else set.delete(id);
     }
     return set;
-  }, [ancestorIds, manualToggled]);
+  }, [ancestorIds, stickyAutoExpanded, manualToggled]);
 
   function toggleExpand(id: string) {
     setManualToggled((prev) => {
@@ -388,6 +451,13 @@ export function FolderSpecTree({
     return set;
   }, [draggingId, specsByParentSpecId]);
 
+  /** 드래그 중인 spec 의 type (위계 invalid 표시용). folder drag / 미드래그 시 null. */
+  const draggedSpecType = useMemo<SpecType | null>(() => {
+    if (!draggingId || !draggingId.startsWith(SPEC_PREFIX)) return null;
+    const id = draggingId.slice(SPEC_PREFIX.length);
+    return specById.get(id)?.type ?? null;
+  }, [draggingId, specById]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor),
@@ -415,6 +485,7 @@ export function FolderSpecTree({
         if (newParentSpecId !== null) return;
         const folderId = activeId.slice(FOLDER_PREFIX.length);
         if (newFolderId && descendantFolderIds.has(newFolderId)) return;
+        if (newFolderId) ensureExpanded(newFolderId);
         startMoveTransition(async () => {
           try {
             await moveFolder({
@@ -439,12 +510,32 @@ export function FolderSpecTree({
             return;
           }
         }
+        if (newParentSpecId) ensureExpanded(newParentSpecId);
+        else if (newFolderId) ensureExpanded(newFolderId);
         startMoveTransition(async () => {
           try {
             await moveSpec({
               id: specId,
               newFolderId,
               newParentSpecId,
+              newOrder,
+            });
+          } catch (err) {
+            window.alert(err instanceof Error ? err.message : "이동 실패");
+          }
+        });
+        return;
+      }
+      if (activeId.startsWith(ATTACHMENT_PREFIX)) {
+        // 첨부는 sub-spec 안에 들어갈 수 없음 — folder/root 레벨 gap 만 허용.
+        if (newParentSpecId !== null) return;
+        const attachmentId = activeId.slice(ATTACHMENT_PREFIX.length);
+        if (newFolderId) ensureExpanded(newFolderId);
+        startMoveTransition(async () => {
+          try {
+            await moveAttachment({
+              id: attachmentId,
+              newFolderId,
               newOrder,
             });
           } catch (err) {
@@ -476,9 +567,25 @@ export function FolderSpecTree({
       if (targetFolderId && descendantFolderIds.has(targetFolderId)) return;
       const folder = folderById.get(id);
       if (!folder || folder.parentId === targetFolderId) return;
+      if (targetFolderId) ensureExpanded(targetFolderId);
       startMoveTransition(async () => {
         try {
           await moveFolder({ id, newParentId: targetFolderId });
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : "이동 실패");
+        }
+      });
+    } else if (activeId.startsWith(ATTACHMENT_PREFIX)) {
+      // 첨부 → 폴더 / 루트 만 가능 (Spec 안엔 못 들어감)
+      if (targetSpecId !== null) return;
+      const id = activeId.slice(ATTACHMENT_PREFIX.length);
+      const att = attachmentById.get(id);
+      if (!att) return;
+      if (att.folderId === targetFolderId) return;
+      if (targetFolderId) ensureExpanded(targetFolderId);
+      startMoveTransition(async () => {
+        try {
+          await moveAttachment({ id, newFolderId: targetFolderId });
         } catch (err) {
           window.alert(err instanceof Error ? err.message : "이동 실패");
         }
@@ -505,6 +612,8 @@ export function FolderSpecTree({
           return;
         }
       }
+      if (targetSpecId !== null) ensureExpanded(targetSpecId);
+      else if (targetFolderId) ensureExpanded(targetFolderId);
       startMoveTransition(async () => {
         try {
           if (targetSpecId !== null) {
@@ -528,26 +637,43 @@ export function FolderSpecTree({
   function renderFolderContents(parentFolderId: string | null, depth: number) {
     const folderChildren = folderChildrenMap.get(parentFolderId) ?? [];
     const rootSpecChildren = specsByFolderId.get(parentFolderId) ?? [];
+    const attachmentChildren =
+      attachmentsByFolderId.get(parentFolderId) ?? [];
     const isCreatingRootSpecHere =
       creating?.kind === "spec" &&
       creating.parentFolderId === parentFolderId &&
       creating.parentSpecId === null;
     const showGaps = draggingId !== null;
 
-    // 폴더 + spec 을 통합 order 로 정렬. locked 폴더는 항상 최상단.
+    // 폴더 + spec + attachment 통합 order. locked 폴더 최상단.
     type MergedItem =
       | { kind: "folder"; folder: FolderNode }
-      | { kind: "spec"; spec: SpecNode };
+      | { kind: "spec"; spec: SpecNode }
+      | { kind: "attachment"; attachment: AttachmentNode };
     const merged: MergedItem[] = [
       ...folderChildren.map((f) => ({ kind: "folder" as const, folder: f })),
       ...rootSpecChildren.map((s) => ({ kind: "spec" as const, spec: s })),
+      ...attachmentChildren.map((a) => ({
+        kind: "attachment" as const,
+        attachment: a,
+      })),
     ];
     merged.sort((a, b) => {
       const aLocked = a.kind === "folder" && a.folder.isLocked;
       const bLocked = b.kind === "folder" && b.folder.isLocked;
       if (aLocked !== bLocked) return aLocked ? -1 : 1;
-      const aOrder = a.kind === "folder" ? a.folder.order : a.spec.order;
-      const bOrder = b.kind === "folder" ? b.folder.order : b.spec.order;
+      const aOrder =
+        a.kind === "folder"
+          ? a.folder.order
+          : a.kind === "spec"
+            ? a.spec.order
+            : a.attachment.order;
+      const bOrder =
+        b.kind === "folder"
+          ? b.folder.order
+          : b.kind === "spec"
+            ? b.spec.order
+            : b.attachment.order;
       return aOrder - bOrder;
     });
 
@@ -566,11 +692,15 @@ export function FolderSpecTree({
           const gapKey =
             item.kind === "folder"
               ? `gap-before-f-${item.folder.id}`
-              : `gap-before-s-${item.spec.id}`;
+              : item.kind === "spec"
+                ? `gap-before-s-${item.spec.id}`
+                : `gap-before-a-${item.attachment.id}`;
           const itemKey =
             item.kind === "folder"
               ? `f-${item.folder.id}`
-              : `s-${item.spec.id}`;
+              : item.kind === "spec"
+                ? `s-${item.spec.id}`
+                : `a-${item.attachment.id}`;
 
           return (
             <Fragment key={itemKey}>
@@ -603,6 +733,7 @@ export function FolderSpecTree({
                     const hasContent =
                       (folderChildrenMap.get(folder.id)?.length ?? 0) > 0 ||
                       (specsByFolderId.get(folder.id)?.length ?? 0) > 0 ||
+                      (attachmentsByFolderId.get(folder.id)?.length ?? 0) > 0 ||
                       isCreatingInside;
                     return (
                       <div>
@@ -639,7 +770,16 @@ export function FolderSpecTree({
                       </div>
                     );
                   })()
-                : renderSpecTree(item.spec, depth)}
+                : item.kind === "spec"
+                  ? renderSpecTree(item.spec, depth)
+                  : (
+                    <AttachmentRow
+                      key={`a-${item.attachment.id}`}
+                      attachment={item.attachment}
+                      depth={depth}
+                      projectSlug={projectSlug}
+                    />
+                  )}
             </Fragment>
           );
         })}
@@ -683,6 +823,10 @@ export function FolderSpecTree({
           hasSubSpecs={hasSubSpecs}
           isExpanded={isExpanded}
           isDropDisabled={descendantSpecIds.has(spec.id)}
+          isHierarchyInvalid={
+            draggedSpecType !== null &&
+            !isChildTypeAllowed(spec.type, draggedSpecType)
+          }
           isRenaming={renamingId === spec.id}
           onToggle={() => toggleExpand(spec.id)}
           onStartRename={() => setRenamingId(spec.id)}
@@ -703,6 +847,10 @@ export function FolderSpecTree({
                     parentSpecId={spec.id}
                     order={i}
                     depth={depth + 1}
+                    isHierarchyInvalid={
+                      draggedSpecType !== null &&
+                      !isChildTypeAllowed(spec.type, draggedSpecType)
+                    }
                   />
                 )}
                 {renderSpecTree(child, depth + 1)}
@@ -714,6 +862,10 @@ export function FolderSpecTree({
                 parentSpecId={spec.id}
                 order={subSpecs.length}
                 depth={depth + 1}
+                isHierarchyInvalid={
+                  draggedSpecType !== null &&
+                  !isChildTypeAllowed(spec.type, draggedSpecType)
+                }
               />
             )}
             {isCreatingSubSpec && creating?.kind === "spec" && (
@@ -743,6 +895,10 @@ export function FolderSpecTree({
     draggedLabel =
       specs.find((s) => s.id === draggingId.slice(SPEC_PREFIX.length))?.title ??
       null;
+  } else if (draggingId?.startsWith(ATTACHMENT_PREFIX)) {
+    draggedLabel =
+      attachmentById.get(draggingId.slice(ATTACHMENT_PREFIX.length))?.fileName ??
+      null;
   }
 
   if (!mounted) {
@@ -765,6 +921,7 @@ export function FolderSpecTree({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDraggingId(null)}
+      autoScroll={{ threshold: { x: 0, y: 0.2 } }}
     >
       <div className={cn("flex h-full flex-col", movePending && "opacity-70")}>
         <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -774,25 +931,27 @@ export function FolderSpecTree({
             </h2>
             <HelpPopover />
           </div>
-          <AddMenu
-
-            trigger={
-              <span
-                className={buttonVariants({ size: "xs" })}
-                title="추가"
-                aria-label="추가"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </span>
-            }
-            items={buildAddMenuItems({
-              parentFolderId: null,
-              includeFolder: true,
-            })}
-          />
+          <div className="flex items-center gap-1">
+            <UploadButton projectId={projectId} />
+            <AddMenu
+              trigger={
+                <span
+                  className={buttonVariants({ size: "xs" })}
+                  title="추가"
+                  aria-label="추가"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </span>
+              }
+              items={buildAddMenuItems({
+                parentFolderId: null,
+                includeFolder: true,
+              })}
+            />
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-1">
+        <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
           {creating?.kind === "folder" && creating.parentFolderId === null && (
             <NewFolderInput
               projectId={projectId}
@@ -809,6 +968,8 @@ export function FolderSpecTree({
           )}
           <div className="py-1.5">
             <AddMenu
+              placement="anchor-corner"
+              triggerLayout="block"
               trigger={
                 <span
                   className="flex w-full cursor-pointer items-center gap-1 rounded py-1 text-xs text-zinc-400 hover:bg-zinc-50 hover:text-zinc-600 dark:hover:bg-zinc-900 dark:hover:text-zinc-300"
@@ -819,7 +980,8 @@ export function FolderSpecTree({
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                     <Plus className="h-3.5 w-3.5" />
                   </span>
-                  <span>만들기</span>
+                  {/* popover 가 "만들기" 텍스트 기준 우하단에 뜨도록 anchor 마킹 */}
+                  <span data-popover-anchor>만들기</span>
                 </span>
               }
               items={buildAddMenuItems({
@@ -833,7 +995,7 @@ export function FolderSpecTree({
 
       <DragOverlay>
         {draggedLabel ? (
-          <div className="rounded border border-zinc-300 bg-white px-2 py-1 text-sm shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="rounded bg-white/60 px-2 py-1 text-sm text-zinc-900/60 shadow-md backdrop-blur-sm dark:bg-zinc-900/60 dark:text-zinc-100/60">
             {draggedLabel}
           </div>
         ) : null}
@@ -918,7 +1080,9 @@ function FolderRow({
       className={cn(
         "group flex items-center gap-1 py-1 text-sm transition-colors",
         !isOver && "hover:bg-zinc-50 dark:hover:bg-zinc-900",
-        isOver && !isDropDisabled && "bg-blue-50 dark:bg-blue-950/40",
+        isOver &&
+          !isDropDisabled &&
+          "bg-blue-50 ring-2 ring-inset ring-blue-500 dark:bg-blue-950/40 dark:ring-blue-400",
         isDragging && "opacity-40",
         pending && "opacity-50",
         !folder.isLocked && "cursor-grab active:cursor-grabbing",
@@ -971,7 +1135,7 @@ function FolderRow({
           ) : (
             <FolderIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
           )}
-          <span className="flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">
+          <span className="min-w-0 flex-1 truncate font-medium text-zinc-700 dark:text-zinc-200">
             {folder.name}
           </span>
           <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
@@ -1033,6 +1197,8 @@ interface SpecRowProps {
   hasSubSpecs: boolean;
   isExpanded: boolean;
   isDropDisabled: boolean;
+  /** 위계 룰 (D-035) 위배 — 드래그 중인 spec 의 type 이 이 spec 의 자식이 될 수 없음. */
+  isHierarchyInvalid: boolean;
   isRenaming: boolean;
   onToggle: () => void;
   onStartRename: () => void;
@@ -1049,6 +1215,7 @@ function SpecRow({
   hasSubSpecs,
   isExpanded,
   isDropDisabled,
+  isHierarchyInvalid,
   isRenaming,
   onToggle,
   onStartRename,
@@ -1105,7 +1272,11 @@ function SpecRow({
         isSelected
           ? "bg-zinc-100 dark:bg-zinc-800"
           : !isOver && "hover:bg-zinc-50 dark:hover:bg-zinc-900",
-        isOver && !isDropDisabled && "bg-blue-50 dark:bg-blue-950/40",
+        isOver &&
+          !isDropDisabled &&
+          (isHierarchyInvalid
+            ? "bg-red-50 ring-2 ring-inset ring-red-500 dark:bg-red-950/40 dark:ring-red-400"
+            : "bg-blue-50 ring-2 ring-inset ring-blue-500 dark:bg-blue-950/40 dark:ring-blue-400"),
         isDragging && "opacity-40",
         pending && "opacity-50",
       )}
@@ -1151,7 +1322,7 @@ function SpecRow({
           <Link
             href={`/projects/${projectSlug}/specs/${spec.id}`}
             className={cn(
-              "flex-1 truncate",
+              "min-w-0 flex-1 truncate",
               isSelected
                 ? "font-medium text-zinc-900 dark:text-zinc-100"
                 : "text-zinc-700 dark:text-zinc-300",
@@ -1259,7 +1430,7 @@ function NewFolderInput({
         }}
         onBlur={submit}
         placeholder="비워두면 자동 이름"
-        className="h-7"
+        className="h-7 border-transparent bg-blue-50 ring-2 ring-blue-500 focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-blue-950/40 dark:ring-blue-400 dark:focus-visible:ring-blue-400"
       />
     </div>
   );
@@ -1330,7 +1501,7 @@ function NewSpecInput({
         }}
         onBlur={submit}
         placeholder={`${TYPE_LABEL[specType]} — 비워두면 자동 이름`}
-        className="h-7"
+        className="h-7 border-transparent bg-blue-50 ring-2 ring-blue-500 focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-blue-950/40 dark:ring-blue-400 dark:focus-visible:ring-blue-400"
       />
     </div>
   );
@@ -1429,6 +1600,8 @@ interface GapZoneProps {
   /** 같은 부모 안 형제(folder+spec 통합) 사이의 삽입 위치 (0-indexed). */
   order: number;
   depth: number;
+  /** 위계 룰 (D-035) 위배 — 부모 Spec 의 자식 type 으로 부적합. */
+  isHierarchyInvalid?: boolean;
 }
 
 function GapZone({
@@ -1436,23 +1609,269 @@ function GapZone({
   parentSpecId,
   order,
   depth,
+  isHierarchyInvalid = false,
 }: GapZoneProps) {
   const id = `${GAP_PREFIX}${parentFolderId ?? "_"}:${parentSpecId ?? "_"}:${order}`;
   const { setNodeRef, isOver } = useDroppable({ id });
+  // -my-1.5 로 12px hitbox 유지하면서 시각적 layout shift 0 — 인접 row 와 6px씩 겹침.
+  const accentClass = isHierarchyInvalid
+    ? "bg-red-500 dark:bg-red-400"
+    : "bg-blue-500 dark:bg-blue-400";
+  const dotBorderClass = isHierarchyInvalid
+    ? "border-red-500 dark:border-red-400"
+    : "border-blue-500 dark:border-blue-400";
   return (
     <div
       ref={setNodeRef}
-      className="relative h-3"
+      className="relative -my-1.5 h-3"
     >
       <div
         className={cn(
           "absolute top-1/2 h-0.5 -translate-y-1/2 rounded-full transition-colors",
-          isOver
-            ? "bg-blue-500 dark:bg-blue-400"
-            : "bg-transparent",
+          isOver ? accentClass : "bg-transparent",
         )}
         style={{ left: `${depth * 14 + 8}px`, right: 8 }}
       />
+      {isOver && (
+        <div
+          className={cn(
+            "absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2",
+            dotBorderClass,
+          )}
+          style={{ left: `${depth * 14 + 8}px` }}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }
+
+
+// ============================================================
+// UploadButton — 헤더의 + 옆에 위치, 클릭 시 파일 선택 → 즉시 업로드 (D-038)
+// ============================================================
+
+function UploadButton({ projectId }: { projectId: string }) {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFiles(files: FileList) {
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.set("file", file);
+        fd.set("projectId", projectId);
+        const res = await fetch("/api/attachments", {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(data.error ?? `업로드 실패 (${res.status})`);
+        }
+      }
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "업로드 실패");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            void handleFiles(e.target.files);
+          }
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        title={uploading ? "업로드 중…" : "파일 업로드"}
+        aria-label="파일 업로드"
+        className={cn(
+          buttonVariants({ size: "xs", variant: "ghost" }),
+          uploading && "opacity-60",
+        )}
+      >
+        <Upload className="h-3.5 w-3.5" />
+      </button>
+    </>
+  );
+}
+
+// ============================================================
+// AttachmentRow — 트리 안의 파일 한 줄. 클릭 시 우측 패널 = 첨부 미리보기.
+// ============================================================
+
+function AttachmentRow({
+  attachment,
+  depth,
+  projectSlug,
+}: {
+  attachment: AttachmentNode;
+  depth: number;
+  projectSlug: string;
+}) {
+  const pathname = usePathname();
+  const isSelected =
+    pathname === `/projects/${projectSlug}/attachments/${attachment.id}`;
+  const Icon = mimeToIcon(attachment.mimeType);
+  const [pending, startTransition] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const {
+    setNodeRef: setDragRef,
+    attributes: dragAttrs,
+    listeners,
+    isDragging,
+    transform,
+  } = useDraggable({ id: `${ATTACHMENT_PREFIX}${attachment.id}` });
+  // 첨부는 droppable 아님 — 첨부 위로 다른 항목 드롭 안 됨.
+
+  function handleDelete() {
+    setConfirmOpen(false);
+    startTransition(async () => {
+      try {
+        await deleteAttachment(attachment.id);
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "삭제 실패");
+      }
+    });
+  }
+
+  return (
+    <div
+      ref={setDragRef}
+      {...listeners}
+      style={{
+        paddingLeft: `${depth * 14 + 8}px`,
+        transform: CSS.Translate.toString(transform),
+      }}
+      className={cn(
+        "group flex cursor-grab items-center gap-1 py-1 text-sm transition-colors active:cursor-grabbing",
+        isSelected
+          ? "bg-zinc-100 dark:bg-zinc-800"
+          : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+        isDragging && "opacity-40",
+        pending && "opacity-50",
+      )}
+    >
+      <span
+        {...dragAttrs}
+        className="flex h-5 w-5 shrink-0 select-none items-center justify-center text-zinc-300 opacity-0 transition group-hover:opacity-100"
+        aria-label="드래그하여 이동"
+        title="드래그하여 이동"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+        <LeafDot />
+      </span>
+      <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+      <Link
+        href={`/projects/${projectSlug}/attachments/${attachment.id}`}
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          isSelected
+            ? "font-medium text-zinc-900 dark:text-zinc-100"
+            : "text-zinc-700 dark:text-zinc-300",
+        )}
+        title={attachment.fileName}
+      >
+        {attachment.fileName}
+      </Link>
+      <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(true)}
+          disabled={pending}
+          title="삭제"
+          aria-label="삭제"
+          className={buttonVariants({ size: "xs", variant: "ghost" })}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {confirmOpen && (
+        <AttachmentDeleteConfirm
+          fileName={attachment.fileName}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function AttachmentDeleteConfirm({
+  fileName,
+  onConfirm,
+  onCancel,
+}: {
+  fileName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  // ConfirmDialog 재사용은 import 사이클 회피용 — 가벼운 native 모달로 처리.
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center"
+    >
+      <div
+        aria-hidden="true"
+        onClick={onCancel}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
+      <div className="relative w-[min(420px,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          이 파일을 삭제할까요?
+        </h2>
+        <div className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+          <strong>{fileName}</strong> 파일이 영구 삭제됩니다.
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            autoFocus
+            className={buttonVariants({ size: "sm", variant: "destructive" })}
+          >
+            삭제
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function mimeToIcon(mime: string): LucideIcon {
+  if (mime.startsWith("image/")) return FileImage;
+  if (mime.startsWith("video/")) return FileVideo;
+  if (mime.startsWith("audio/")) return FileAudio;
+  if (mime.startsWith("text/") || mime === "application/pdf") return FileText;
+  return FileIcon;
+}
+

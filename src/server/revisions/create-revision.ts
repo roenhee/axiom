@@ -31,17 +31,19 @@ export async function createRevision(args: {
   const latest = await db.revision.findFirst({
     where: { specId: args.specId },
     orderBy: { createdAt: "desc" },
-    select: { markdown: true },
+    select: { markdown: true, apiSpec: true },
   });
   if (latest && latest.markdown === args.markdown) {
     return null;
   }
 
+  // apiSpec 은 본문 변경과 무관하게 직전 값을 그대로 carry-forward (full snapshot 원칙, D-040).
   const rev = await db.revision.create({
     data: {
       specId: args.specId,
       authorId: userId,
       markdown: args.markdown,
+      apiSpec: latest?.apiSpec ?? null,
     },
     select: { id: true, createdAt: true },
   });
