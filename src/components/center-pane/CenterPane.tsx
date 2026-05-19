@@ -8,17 +8,21 @@ import { DesignFramePane } from "./DesignFramePane";
 type ViewKey = "design" | "slot" | "full";
 
 const VIEWS: { key: ViewKey; label: string; phase: string }[] = [
-  { key: "design", label: "디자인 프레임", phase: "Phase 2" },
-  { key: "slot", label: "슬롯 목업", phase: "Phase 3" },
   { key: "full", label: "전체 목업", phase: "Phase 3" },
+  { key: "slot", label: "슬롯 목업", phase: "Phase 3" },
+  { key: "design", label: "디자인 프레임", phase: "Phase 2" },
 ];
 
 /**
  * 가운데 패널 (D-020). 세 가지 렌더링 뷰의 컨테이너.
  *
- * - 디자인 프레임: Spec 에 연결된 Figma frame embed (Phase 2 — 구현됨, D-047).
- * - 슬롯 목업: 선택된 Slot 의 working mock (Phase 3 에서 채워짐).
+ * 탭 순서: 전체 목업 → 슬롯 목업 → 디자인 프레임 (D-020 원안 그대로).
+ * 초기 활성 탭은 현재 가장 활성된 phase 의 뷰 — Phase 2 단계에선 "디자인 프레임".
+ * Phase 3 이 들어오면 "슬롯 목업" 또는 "전체 목업" 으로 옮길 수 있음.
+ *
  * - 전체 목업: Surface 를 합성한 mock (Phase 3 에서 채워짐).
+ * - 슬롯 목업: 선택된 Slot 의 working mock (Phase 3 에서 채워짐).
+ * - 디자인 프레임: Spec 에 연결된 Figma frame embed (Phase 2 — 구현됨, D-047).
  *
  * Spec id 는 URL 의 [id] params 로부터 client side 로 추출.
  * /projects/[slug]/settings 같이 spec id 가 없는 경로에서는 null.
