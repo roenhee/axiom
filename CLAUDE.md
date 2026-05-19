@@ -127,9 +127,15 @@ worktree 에서 작업을 마쳤으면 메인 레포에서 fast-forward 머지:
 
 ```bash
 git -C <main-repo> merge --ff-only claude/<worktree-branch>
-cd <main-repo> && npx prisma generate   # schema 변경 있었을 때만
-# dev 서버가 켜져 있으면 restart (또는 hot reload 가 알아서 잡음)
+cd <main-repo>
+npm install                  # package.json 변동 있었을 때만 — 누락 시 dev 가 Module not found 로 깸
+npx prisma generate          # schema 변경 있었을 때만
+# dev 서버가 켜져 있으면 restart (turbopack import resolution 캐시가 stale 일 수 있음)
 ```
+
+`npm install` 누락의 흔한 증상: 브라우저 콘솔에 `Can't resolve '<new-dep>'`.
+worktree 에서 새 의존성을 추가했는데 메인 `node_modules` 가 그 시점 이전이라
+발생한다 — 머지 직후 한 번만 돌리면 안전.
 
 머지 후 worktree 가 더 이상 필요 없으면 `git worktree remove` 로 정리.
 
