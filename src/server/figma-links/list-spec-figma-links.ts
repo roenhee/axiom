@@ -1,19 +1,8 @@
-import "server-only";
+"use server";
+
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth/current-user";
-import type { FigmaRequiredLevel } from "@/generated/prisma/enums";
-
-export interface SpecFigmaLinkItem {
-  id: string;
-  requiredLevel: FigmaRequiredLevel;
-  order: number;
-  frame: {
-    id: string;
-    fileKey: string;
-    nodeId: string;
-    label: string;
-  };
-}
+import type { SpecFigmaLinkItem } from "./types";
 
 /**
  * 한 Spec 에 연결된 Figma frame 목록 — order asc, createdAt asc 기준.
