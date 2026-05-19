@@ -32,6 +32,8 @@ model User {
   versionsCreated         SpecVersion[]
   revisions               Revision[]
   attachmentsUploaded     Attachment[]
+  // Phase 2 역관계
+  figmaFramesCreated      FigmaFrame[]
 
   @@map("users")
 }
@@ -53,6 +55,7 @@ model Project {
   specs       Spec[]
   attachments Attachment[]
   members     UserRole[]
+  figmaFrames FigmaFrame[]
 
   @@map("projects")
 }
@@ -119,6 +122,7 @@ model Spec {
   revisions     Revision[]
   relationsFrom SpecRelation[] @relation("FromSpec")
   relationsTo   SpecRelation[] @relation("ToSpec")
+  figmaLinks    SpecFigmaLink[]
 
   @@index([projectId, folderId])
   @@index([projectId, parentSpecId])
@@ -253,4 +257,60 @@ model UserRole {
 
   @@unique([userId, projectId])
   @@map("user_roles")
+}
+
+// ============================================================
+// Phase 2 — Figma 연결
+// PRD 8장. Spec ↔ FigmaFrame 다대다 (SpecFigmaLink).
+// MVP 에선 Spec 단위만 연결. Slot 측 연결은 Phase 3 진입 시 별도 테이블 또는
+// SpecFigmaLink 에 nullable 컬럼 추가로 결정 (D-046 참고).
+// ============================================================
+
+enum FigmaRequiredLevel {
+  required
+  recommended
+  optional
+  not_needed
+}
+
+/// PRD 8.1. Figma URL 을 paste 하면 fileKey + nodeId 를 파싱해 upsert.
+/// 같은 (fileKey, nodeId) 조합은 프로젝트 내에 단 하나 — 여러 Spec 에서 공유.
+model FigmaFrame {
+  id           String   @id @default(cuid())
+  projectId    String   @map("project_id")
+  /// figma.com/file/{fileKey} 또는 figma.com/design/{fileKey} — 둘 다 동일 식별자.
+  fileKey      String   @map("file_key")
+  /// `node-id={nodeId}` — URL 의 `12-345` 또는 `12:345` 둘 다 받아 `12:345` 로 정규화.
+  nodeId       String   @map("node_id")
+  /// 사람이 붙이는 frame 이름 (PRD 16.6, 8.3 의 "기본 상태" 등).
+  label        String
+  createdById  String   @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  links     SpecFigmaLink[]
+
+  @@unique([projectId, fileKey, nodeId])
+  @@index([projectId])
+  @@map("figma_frames")
+}
+
+/// PRD 8.2. 한 Spec 에서 한 FigmaFrame 으로 가는 연결 — 같은 frame 을 여러 Spec 이 공유 가능.
+/// requiredLevel 은 "이 Spec 입장에서 이 frame 의 필요도".
+model SpecFigmaLink {
+  id            String             @id @default(cuid())
+  specId        String             @map("spec_id")
+  figmaFrameId  String             @map("figma_frame_id")
+  requiredLevel FigmaRequiredLevel @default(optional) @map("required_level")
+  /// 같은 Spec 안에서 frame 표시 순서.
+  order         Int                @default(0)
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  spec       Spec       @relation(fields: [specId], references: [id], onDelete: Cascade)
+  figmaFrame FigmaFrame @relation(fields: [figmaFrameId], references: [id], onDelete: Cascade)
+
+  @@unique([specId, figmaFrameId])
+  @@index([specId])
+  @@map("spec_figma_links")
 }

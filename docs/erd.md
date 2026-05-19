@@ -307,7 +307,8 @@ model Attachment {
 
 ### FigmaFrame
 
-PRD 8장. URL paste + frame ID 파싱.
+PRD 8장. URL paste → fileKey + nodeId 파싱 후 upsert. 같은 프로젝트 안에서
+(fileKey, nodeId) 는 단 하나 — 여러 Spec 이 같은 frame 을 공유한다.
 
 ```prisma
 enum FigmaRequiredLevel {
@@ -318,39 +319,42 @@ enum FigmaRequiredLevel {
 }
 
 model FigmaFrame {
-  id          String   @id @default(cuid())
-  projectId   String
-  fileKey     String   // figma.com/file/{fileKey}
-  nodeId      String   // node-id={nodeId}
-  label       String   // 사람이 붙이는 이름 (PRD 16.6 "가격 필터 기본 상태")
-  thumbnailUrl String?
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  projectId    String
+  fileKey      String   // figma.com/file/{fileKey} 또는 /design/{fileKey}
+  nodeId       String   // node-id 의 콜론 정규화 형태 (예: "12:345")
+  label        String   // 사람이 붙이는 frame 이름 (PRD 8.3 "기본 상태")
+  createdById  String
+  createdAt    DateTime @default(now())
 
-  links SpecFigmaLink[]
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User            @relation(fields: [createdById], references: [id])
+  links     SpecFigmaLink[]
 
-  @@unique([fileKey, nodeId])
+  @@unique([projectId, fileKey, nodeId])
 }
 
 model SpecFigmaLink {
-  id            String   @id @default(cuid())
-  specId        String?
-  specVersionId String?
-  // 또는 Slot 측 연결도 같은 테이블에 (PRD 8.1)
-  slotComponentId  String?
-  slotVariationId  String?
-  slotInstanceId   String?
-
-  figmaFrameId String
+  id            String             @id @default(cuid())
+  specId        String
+  figmaFrameId  String
   requiredLevel FigmaRequiredLevel @default(optional)
+  order         Int                @default(0)
+  createdAt     DateTime           @default(now())
 
-  spec         Spec?         @relation(fields: [specId], references: [id])
-  specVersion  SpecVersion?  @relation(fields: [specVersionId], references: [id])
-  figmaFrame   FigmaFrame    @relation(fields: [figmaFrameId], references: [id])
-  // slot 관계는 Phase 3
+  spec       Spec       @relation(fields: [specId],       references: [id], onDelete: Cascade)
+  figmaFrame FigmaFrame @relation(fields: [figmaFrameId], references: [id], onDelete: Cascade)
+
+  @@unique([specId, figmaFrameId])
 }
 ```
 
-> 주의: SpecFigmaLink가 어느 한쪽에 붙는지(Spec / SlotComponent / Variation / Instance)는 nullable로 처리. 너무 흩어지면 별도 테이블로 쪼개는 것도 옵션. Phase 3 진입 시 재검토.
+**Phase 2 MVP 결정 (D-046):**
+- 연결 단위는 **Spec 만**. PRD 8.1 의 Slot Component / Variation / Instance 측
+  연결은 Phase 3 진입 시 별도 테이블 또는 nullable 컬럼 추가로 결정.
+- SpecVersion 단위 연결은 MVP 에선 두지 않음 — Figma 연결은 Spec 메타 성격으로,
+  Version 마다 별도 frame 묶음을 따로 두지 않는다. AI/Export 기준 (PRD 7.6) 은
+  Spec 의 markdown snapshot 만 Version 이고 Figma 는 현 시점 연결 그대로 사용.
 
 ---
 

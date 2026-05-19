@@ -933,6 +933,72 @@ alert 으로 보여주는 것 자체가 버그.
 
 ---
 
+## 2026-05-19 — Phase 2 진입 결정 묶음
+
+### D-046. Figma 연결 단위는 Spec 만 (Phase 2 MVP)
+
+PRD 8.1 은 Feature/Spec/Slot Component/Variation/Instance 모두 연결 가능하다고
+명시하지만, Phase 2 에서는 **Spec 단위 연결만** 구현한다. Slot 측 모델 자체가
+Phase 3 에서 처음 들어오므로 그 시점에 다시 결정:
+
+1. `SpecFigmaLink` 에 nullable 컬럼 (`slotComponentId` 등) 추가 — 한 테이블 유지
+2. 별도 테이블 `SlotFigmaLink` 분리 — 깔끔하지만 join 분기 ↑
+
+또한 SpecVersion 단위로 별도 figma 묶음을 두지 않는다. Figma 연결은 Spec
+메타 성격으로 본다. PRD 7.6 (AI/Export 는 Published Version 기준) 의 영향
+범위는 markdown snapshot 이고, figma 는 현 시점 상태 그대로 사용.
+
+**이유**: Phase 2 MVP 의 범위를 좁히고, slot 모델이 안정된 뒤 결정해도 비용이 작다.
+
+**관련**: `prisma/schema.prisma` FigmaFrame / SpecFigmaLink, `docs/erd.md` Phase 2.
+
+### D-047. Figma UI 위치 — 가운데 "디자인 프레임" 뷰 안에 인라인
+
+연결 추가 (URL paste), required level 토글, frame label 편집, 연결 해제를
+모두 `CenterPane` 의 design 모드 안에서 처리. 우측 SpecTabs 에는 새 탭을
+추가하지 않는다.
+
+**이유**: 사용자가 frame 을 등록하고 바로 embed 미리보기를 보는 흐름이 자연스럽고,
+가운데 패널의 "디자인 프레임" placeholder 가 이미 D-020 에서 Phase 2 자리로 박혀
+있었다. 우측 4탭 (본문/API/관계/히스토리) 은 그대로 유지.
+
+**트레이드오프**: 가운데 패널이 Phase 3 의 슬롯 목업까지 떠안게 되면 점점 복잡해진다.
+일단 design 모드 안의 컴포넌트는 독립적으로 둬서 분리 가능하게 유지.
+
+**관련**: `src/components/center-pane/CenterPane.tsx`, D-020.
+
+### D-048. Compare View — 현재 3-pane 셸이 곧 Compare View
+
+PRD 8.4 의 "좌 Spec / 우 Figma" 좌우 비교 요건은 이미 워크스페이스 3-pane
+(좌 트리 / 가운데 디자인 / 우 Spec 본문) 구조가 만족한다. 별도 페이지
+(`/specs/:id/compare`) 는 만들지 않는다.
+
+**이유**: URL/네비게이션이 단일하고, 트리에서 다른 Spec 으로 이동해도 좌우
+비교 컨텍스트가 그대로 유지된다.
+
+**트레이드오프**: 1024×768 같은 좁은 화면에서는 3-pane 이 좁아진다 — D-025 의
+drag handle 로 사용자가 좌/우 패널을 접어 가운데 + 우 (Spec vs Figma) 형태로
+좁힐 수 있게 이미 처리됨.
+
+**관련**: PRD 8.4, D-020, D-025.
+
+### D-049. Figma Coverage 의 N/M 정의 — Phase 2 에선 단순화
+
+PRD 8.3 예시의 "4 / 5 connected" 형태에서 분모 5 (expected) 는 Scenario 모델
+(State spec, 단위별 expected frame 정의) 이 없으면 정확히 계산할 수 없다.
+Phase 2 MVP 에선 다음 단순한 정의로 가져간다:
+
+- `total` = Spec 에 등록된 frame 수
+- `expected` = required + recommended 의 합
+- `connected` = 현재는 `expected` 와 동일 (즉 등록된 것 중 required/recommended)
+
+PRD 의 N/M 정확한 의미 (expected 가 미리 정해지고 실제 연결 수와 비교) 는
+Phase 5 (Sync Status) 진입 시 재정의.
+
+**관련**: `src/server/figma-links/get-figma-coverage.ts`.
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```
