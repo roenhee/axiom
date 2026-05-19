@@ -1011,6 +1011,36 @@ Phase 5 (Sync Status) 진입 시 재정의.
 
 ---
 
+## 2026-05-19 — 세션 운영 정책 (Claude Code worktree 미사용 기본)
+
+### D-051. 새 Claude Code 세션은 worktree 없이 메인 레포에서 시작한다
+
+기획자가 새 세션을 여는 동기는 거의 항상 **"context 길이가 길어져서 효율
+떨어지는 걸 끊으려는 것"** 이지, 두 가지 변경을 동시에 진행하려는 게 아니다.
+그럴 때 worktree 를 만들면 다음 문제가 생긴다:
+
+- 메인 dev 서버에서 변경이 안 보임 (다른 branch / 다른 디렉토리)
+- worktree 마다 `npm install`, `prisma generate`, `.next/` 가 별도로 쌓임
+- 머지 한 단계가 추가됨
+- `.claude/worktrees/` 안에서 dev 띄우면 Mac freeze (D-044)
+
+따라서 다음을 기본으로 한다:
+
+- 새 세션 시작 시 Claude Code 의 "isolated worktree" / "create branch" 옵션을
+  쓰지 않는다 — 그냥 메인 레포 디렉토리에서 시작
+- 작업은 main branch 에 직접 커밋
+- worktree 는 진짜 병렬 작업이 필요할 때만 (두 변경 흐름을 동시에)
+
+**이유**: 가장 흔한 운영 흐름 (직렬 세션) 에 맞춰 마찰을 0 으로. worktree
+가 주는 격리 가치는 1인 + 직렬 진행 환경에선 거의 0.
+
+**예외**: Phase 4 의 AI Task Plan worktree (prototype repo 측) 는 코드 책임
+(격리된 patch 생성) 이고, 이 결정의 "세션 worktree" 와 별개.
+
+**관련**: `CLAUDE.md` "세션 운영" 섹션, D-044 (`.claude/worktrees/` freeze).
+
+---
+
 ## 템플릿 (앞으로 추가할 때 이 형식)
 
 ```

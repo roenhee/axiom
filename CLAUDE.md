@@ -75,39 +75,63 @@ Hub의 `.env`에 `PROTOTYPE_REPO_PATH`로 prototype repo의 절대 경로를 박
 
 ---
 
-## Git worktree 위치 규약 (D-044)
+## 세션 운영 (D-051)
 
-**Claude Code 가 isolation 모드로 worktree 를 만들 때 기본 경로는
-`<repo>/.claude/worktrees/<name>/` 인데, 이 경로에서 `npm run dev` 를 돌리면 Mac 이
-freeze 된다. 반드시 `~/work/` 같은 별도 경로로 옮긴 다음에 dev 서버를 띄운다.**
+**기본: 새 Claude Code 세션은 worktree 없이 메인 레포에서 시작한다.**
 
-### 왜
-- `<repo>/.claude/` 는 Claude Code 의 세션 디렉토리. agent 가 watch 중.
-- Next dev (Turbopack) 는 `.next/dev/` 에 초당 수천 개 파일을 쓴다.
-- worktree 가 `.claude/` 안에 있으면 그 모든 쓰기가 Claude watcher 로 흘러들어가
-  fsevents 폭주 → 시스템 freeze.
+이 프로젝트는 1인 + Claude Code 페어로 진행되고, 세션을 새로 여는 이유는
+대부분 "context 길이가 길어져서 효율 떨어지는 걸 끊으려는 것" 이다. 그건
+worktree 없이 깨끗한 새 세션을 메인 main 에서 시작하기만 해도 충족된다.
 
-### 새 worktree 만들 때 절차
+- 새 세션을 열 때 Claude Code 의 "isolated worktree" / "create branch" 옵션을
+  **쓰지 않는다**. 그냥 메인 레포 디렉토리에서 시작.
+- 작업은 main branch 에 직접 커밋 (혹은 PR 흐름이 필요해지면 그때 결정).
+- 변경 즉시 메인 레포의 dev 서버 hot reload — "왜 안 보이지?" 가 없음.
+
+### 예외: 진짜 병렬 작업이 필요할 때만 worktree
+
+다음 경우에만 worktree 를 만든다.
+
+- 두 가지 변경 흐름을 **동시에** 진행 (서로 다른 코드 영역을 같은 시각에 수정)
+- 한 작업을 검토하는 동안 다른 작업을 켜둬야 함
+- AI Task Plan 의 격리 (Phase 4 의 prototype repo worktree 는 별개 — 이건 코드 책임,
+  여기서 말하는 "세션 worktree" 와 다름)
+
+### worktree 를 만들었다면 — D-044 freeze 가드
+
+**Claude Code 가 isolation 으로 만든 worktree 의 기본 경로는
+`<repo>/.claude/worktrees/<name>/` 인데, 거기서 `npm run dev` 를 돌리면 Mac 이
+freeze 된다.** `.claude/` 가 Claude Code agent 의 watch 대상이라 Next dev
+(Turbopack) 가 `.next/dev/` 에 쓰는 초당 수천 개 파일이 fsevents 로 폭주.
+
+worktree 를 쓸 경우 절차:
 
 ```bash
-# 1) Claude Code isolation 으로 만들어졌든, 수동으로 만들었든
-#    .claude/ 안에 있다면 즉시 옮긴다.
+# 1) .claude/ 밖으로 이동 (한 번)
 mkdir -p ~/work
 git -C <main-repo> worktree move \
   <main-repo>/.claude/worktrees/<name> \
   ~/work/<name>
 
-# 2) 옮긴 후 옛 경로에 stale .next 가 있으면 지운다.
-#    (대부분 자동 이동되지만 옛 위치에 흔적이 남기도 함)
-
-# 3) 새 경로에서만 dev 를 돌린다.
+# 2) 옮긴 경로에서만 dev 를 돌린다
 cd ~/work/<name> && npm run dev
 ```
 
-### 추가 안전장치
-- `next.config.ts` 에 `turbopack.root = path.resolve(__dirname)` 박혀있다.
-  worktree 가 메인 레포 안에 있더라도 Turbopack 의 file watcher 가 상위로 안 올라가도록.
-- 메인 레포 / 다른 worktree 에 stale `.next/` 가 남아있다면 회수하는 게 좋다 (수 백 MB ~ 1GB).
+추가 안전장치: `next.config.ts` 의 `turbopack.root = path.resolve(__dirname)` 로
+file watcher 가 상위로 안 올라가게 박혀있음. 메인 레포 / 다른 worktree 에
+stale `.next/` 가 남아있다면 회수하는 게 좋다 (수 백 MB ~ 1GB).
+
+### worktree → main 머지 흐름
+
+worktree 에서 작업을 마쳤으면 메인 레포에서 fast-forward 머지:
+
+```bash
+git -C <main-repo> merge --ff-only claude/<worktree-branch>
+cd <main-repo> && npx prisma generate   # schema 변경 있었을 때만
+# dev 서버가 켜져 있으면 restart (또는 hot reload 가 알아서 잡음)
+```
+
+머지 후 worktree 가 더 이상 필요 없으면 `git worktree remove` 로 정리.
 
 ---
 
@@ -229,7 +253,10 @@ npx prisma generate
 - prototype repo 경로 하드코딩
 - preview URL을 DB에 절대 URL로 저장
 - AI Runner 코드를 여기저기 흩뿌리기
+- **context 길이 분산 목적으로 새 세션을 열면서 worktree 만들기** — 사용자
+  의도는 "깨끗한 새 세션" 이지 "병렬 작업" 이 아니다. 메인 레포에서 그냥 새
+  세션. (D-051)
 - **`<repo>/.claude/worktrees/...` 안에서 `npm run dev` 돌리기** — Mac freeze.
-  반드시 `~/work/<name>/` 같은 별도 경로로 worktree 옮긴 뒤에 dev 띄운다. (D-044)
+  worktree 를 정말 써야 한다면 `~/work/<name>/` 으로 옮긴 뒤에 dev 띄운다. (D-044)
 - `try { await serverAction() } catch (e) { alert(e.message) }` 패턴에서
   NEXT_ digest 에러를 흡수하기 — 반드시 `isNextControlFlowError(e)` 로 거르고 다시 throw. (D-042)
