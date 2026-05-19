@@ -982,6 +982,18 @@ drag handle 로 사용자가 좌/우 패널을 접어 가운데 + 우 (Spec vs F
 
 **관련**: PRD 8.4, D-020, D-025.
 
+### D-050. Phase 2 시드 데이터에 Figma frame 추가하지 않음
+
+`prisma/seed.ts` 의 sample 프로젝트에 예시 Figma frame 을 미리 박아 두지 않는다.
+
+**이유**:
+- 가짜 fileKey/nodeId 를 두면 iframe embed 가 빈 화면이 되어 오히려 혼란.
+- 진짜 community Figma URL 은 영속성 보장 안 됨 + 회사 보안 정책 가정에 맞지 않음.
+- 사용자가 직접 첫 frame 을 추가하는 과정이 그 자체로 좋은 onboarding —
+  AddFigmaForm 의 description 에 "Figma → Share → Copy link" 안내 있음.
+
+**관련**: D-043 (예시 spec 시드), `src/components/center-pane/DesignFramePane.tsx` AddFigmaForm.
+
 ### D-049. Figma Coverage 의 N/M 정의 — Phase 2 에선 단순화
 
 PRD 8.3 예시의 "4 / 5 connected" 형태에서 분모 5 (expected) 는 Scenario 모델

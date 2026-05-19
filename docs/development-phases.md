@@ -86,20 +86,28 @@ Spec에 Figma frame URL을 연결하고, 좌측 Spec / 우측 Figma의 Compare V
 
 ### 작업
 
-- [ ] Prisma 모델: FigmaFrame, Spec↔FigmaFrame 다대다 연결 테이블
-- [ ] Figma URL paste UI — frame ID 파싱 (`figma.com/file/{key}/?node-id={id}` 패턴)
-- [ ] `figma.com/embed?...` 형태로 iframe embed
-- [ ] required / recommended / optional / not_needed 4단계
-- [ ] Figma Coverage 계산 + UI 표시 (PRD 8.3)
-- [ ] Compare View 페이지 — 좌측 Spec markdown 렌더 / 우측 Figma iframe
-- [ ] `docs/api.md`, `docs/erd.md` 갱신
+- [x] Prisma 모델: FigmaFrame, SpecFigmaLink 다대다 + `FigmaRequiredLevel` enum
+      (D-046 — Phase 2 MVP 는 Spec 단위만, slot 측 연결은 Phase 3)
+- [x] Figma URL paste UI — `figma.com/file|design|proto/{key}/?node-id={id}` 파싱
+      (`src/lib/figma-url.ts`)
+- [x] `figma.com/embed?embed_host=...&url=...` iframe 임베드
+- [x] required / recommended / optional / not_needed 4단계 (각 frame 별)
+- [x] Figma Coverage 계산 + 상단 badge 로 분포 표시 (D-049 의 MVP 단순화)
+- [x] Compare View — 별도 페이지 X. 현재 3-pane 셸 (좌 트리 / 가운데 디자인 /
+      우 Spec 본문) 이 곧 Compare View 역할 (D-048)
+- [x] `docs/api.md`, `docs/erd.md` 갱신
+- [x] 결정 로그: D-046 (Spec 단위만), D-047 (UI 위치), D-048 (Compare View),
+      D-049 (Coverage 정의), D-050 (시드 정책)
 
 ### Definition of Done
 
-- Spec Detail에서 Figma URL 추가 → embed로 보임
-- 한 Spec에 여러 Figma frame 연결 → 각 frame의 required level 설정
-- Coverage 표시 (예: "4 / 5 connected")
-- Compare View에서 좌우 동시 보기
+- [x] Spec Detail 우측에 본문 / 가운데에 Figma 디자인 프레임 뷰 — Spec 을 트리에서
+      선택하면 가운데가 그 Spec 의 frame 으로 자동 갱신
+- [x] 한 Spec 에 여러 Figma frame 연결 → 상단 chip 으로 전환
+- [x] 각 frame 의 required level 토글 (4단계)
+- [x] Coverage badge — "N frame · 필수 X · 권장 Y" 표시
+- [x] 같은 frame 을 두 Spec 에서 공유 가능 (FigmaFrame 은 프로젝트 단위 unique)
+- [x] Compare 좌우 동시 보기 — 우측 본문 탭 + 가운데 Figma iframe
 
 ---
 

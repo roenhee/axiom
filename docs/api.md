@@ -114,56 +114,66 @@ POST `/api/specs/:id/versions` body:
 
 ## Phase 2 — Figma
 
-### FigmaFrame
+D-015 에 따라 Phase 2 의 데이터 조작은 **Server Action 우선**. 아래 RESTful
+표는 외부 통합/디버깅이 생길 경우의 참고용. 현재 사용 중인 server actions
+는 모두 `src/server/figma-links/` 디렉토리.
+
+### Server Actions (현재 구현)
+
+| 함수 | 입력 | 동작 |
+|---|---|---|
+| `getFigmaPaneData(specId)` | specId | `listSpecFigmaLinks` + `getFigmaCoverage` 묶음. 가운데 패널 첫 fetch 용. |
+| `listSpecFigmaLinks(specId)` | specId | Spec 에 연결된 frame 목록 (order asc). |
+| `getFigmaCoverage(specId)` | specId | `{ total, byLevel, expectedCount, connectedCount }`. D-049 의 단순화 정의. |
+| `createFigmaLink(formData)` | specId, url, label, requiredLevel | URL 파싱 → FigmaFrame upsert → SpecFigmaLink 생성. |
+| `updateFigmaLinkLevel(linkId, level)` | linkId, FigmaRequiredLevel | requiredLevel 변경. |
+| `renameFigmaFrame(formData)` | frameId, label | FigmaFrame.label 변경 (같은 frame 을 참조하는 모든 Spec 에 반영). |
+| `deleteFigmaLink(linkId)` | linkId | Spec ↔ FigmaFrame 연결 해제. frame 자체는 남김. |
+
+### URL 파싱 (`src/lib/figma-url.ts`)
+
+받는 형태:
+- `https://www.figma.com/file/{fileKey}/{name}?node-id=12-345`
+- `https://www.figma.com/design/{fileKey}/{name}?node-id=12-345`
+- `https://www.figma.com/proto/{fileKey}/{name}?node-id=12-345`
+
+`node-id` 의 하이픈/콜론 형태 둘 다 받아 콜론 `12:345` 로 정규화 저장.
+embed iframe src 는 `buildFigmaEmbedSrc(fileKey, nodeId)` 로 생성.
+
+### RESTful 인터페이스 초안 (Phase 5+ 외부 통합 시)
 
 | 경로 | 메소드 | 설명 |
 |---|---|---|
-| `/api/projects/:projectId/figma-frames` | GET | 프로젝트 내 Figma frame 목록 |
-| `/api/projects/:projectId/figma-frames` | POST | Figma URL paste로 등록 |
-| `/api/figma-frames/:id` | PATCH | label 수정 |
-| `/api/figma-frames/:id` | DELETE | 삭제 |
+| `/api/specs/:id/figma-links` | GET | 이 Spec 의 Figma 연결 목록 |
+| `/api/specs/:id/figma-links` | POST | Figma 연결 추가 (URL paste) |
+| `/api/figma-links/:id` | PATCH | requiredLevel 변경 |
+| `/api/figma-links/:id` | DELETE | 연결 해제 |
+| `/api/figma-frames/:id` | PATCH | frame label 변경 |
+| `/api/specs/:id/figma-coverage` | GET | coverage 계산 결과 |
 
-POST body:
+POST `/api/specs/:id/figma-links` body:
 
 ```json
 {
-  "url": "https://www.figma.com/file/abc/Design?node-id=12-345",
-  "label": "가격 필터 기본 상태"
+  "url": "https://www.figma.com/design/abc/Design?node-id=12-345",
+  "label": "가격 필터 기본 상태",
+  "requiredLevel": "required"
 }
 ```
 
-서버에서 `fileKey`와 `nodeId` 파싱.
-
-### Spec ↔ Figma 연결
-
-| 경로 | 메소드 | 설명 |
-|---|---|---|
-| `/api/specs/:id/figma-links` | GET | 이 Spec의 Figma 연결 목록 |
-| `/api/specs/:id/figma-links` | POST | Figma 연결 추가 |
-| `/api/figma-links/:id` | PATCH | requiredLevel 변경 |
-| `/api/figma-links/:id` | DELETE | 연결 해제 |
-
-### Figma Coverage
-
-| 경로 | 메소드 | 설명 |
-|---|---|---|
-| `/api/specs/:id/figma-coverage` | GET | 이 Spec의 coverage 계산 결과 |
-
-응답:
+`getFigmaCoverage` 응답 (D-049 의 MVP 단순화):
 
 ```json
 {
   "total": 5,
-  "connected": 4,
-  "items": [
-    { "label": "기본 상태", "connected": true },
-    { "label": "선택 상태", "connected": true },
-    { "label": "validation error", "connected": true },
-    { "label": "모바일 상태", "connected": true },
-    { "label": "empty state", "connected": false }
-  ]
+  "byLevel": { "required": 2, "recommended": 1, "optional": 2, "not_needed": 0 },
+  "expectedCount": 3,
+  "connectedCount": 3
 }
 ```
+
+PRD 8.3 의 `items` 별 connected/disconnected 항목 표시는 Scenario 모델이
+들어오는 시점 (Phase 5) 에 재정의 — Phase 2 에선 byLevel 분포만 표시.
 
 ---
 
