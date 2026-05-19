@@ -226,16 +226,9 @@ li.tiptap-task-item[data-checked="true"] > div {
   background-color: rgba(96, 165, 250, 0.18) !important;
 }
 
-/* pptx-preview 가 자체 페이지네이션 / next 버튼 UI 를 렌더 — 우리 외부 nav 만
-   쓰므로 모두 숨김. 실제 라이브러리 클래스: pptx-preview-wrapper-pagination,
-   pptx-preview-wrapper-next. */
-.pptx-preview-host .pptx-preview-wrapper-pagination,
-.pptx-preview-host .pptx-preview-wrapper-next,
-.pptx-preview-host [class*="pagination"],
-.pptx-preview-host [class*="wrapper-next"],
-.pptx-preview-host [class*="wrapper-pre"] {
-  display: none !important;
-}
+/* D-045 — pptx-preview 라이브러리 제거. 표 / 한국어 폰트 등 fidelity 한계 때문에
+   서버 LibreOffice → PDF 변환 + react-pdf 렌더로 전환. PptxPreview 관련 CSS hack 도
+   모두 삭제. (이전 D-039 의 .pptx-preview-host 관련 override 제거) */
 
 /* Swagger UI 폰트 / 사이즈 / 컬러 톤을 앱 기본(Geist + zinc) 에 맞춤 (D-040).
    .api-swagger-host 안에서만 override — 다른 어디서 Swagger UI 쓰면 영향 X. */

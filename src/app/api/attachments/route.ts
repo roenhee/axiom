@@ -5,6 +5,8 @@ import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/auth/current-user";
 import { uploadRoot } from "@/server/attachments/upload-paths";
+import { enqueuePreviewConversion } from "@/server/attachments/queue-preview-conversion";
+import { isOfficeMimeOrExt } from "@/lib/office-to-pdf";
 import { revalidatePath } from "next/cache";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -84,16 +86,22 @@ export async function POST(req: Request) {
   });
   const order = (maxOrder._max.order ?? -1) + 1;
 
+  const mimeType = file.type || "application/octet-stream";
+  const isOffice = isOfficeMimeOrExt(mimeType, file.name);
+
   const attachment = await db.attachment.create({
     data: {
       projectId,
       folderId,
       fileName: file.name,
       storedName,
-      mimeType: file.type || "application/octet-stream",
+      mimeType,
       size: file.size,
       uploadedById: userId,
       order,
+      // D-045. office 파일은 즉시 "converting" 으로 표시 — 우측 패널에서 곧바로
+      // "변환 중…" UI 가 떠야 사용자가 "어, 안 되네?" 라고 오해 안 함.
+      previewStatus: isOffice ? "converting" : null,
     },
     select: {
       id: true,
@@ -102,8 +110,15 @@ export async function POST(req: Request) {
       size: true,
       folderId: true,
       order: true,
+      previewStatus: true,
     },
   });
+
+  // D-045. office 변환은 fire-and-forget — 응답 시간에 LibreOffice 의 수 초 비용이
+  // 안 보이도록. 변환 진행 / 결과는 DB previewStatus 로 추적.
+  if (isOffice) {
+    void enqueuePreviewConversion(attachment.id);
+  }
 
   revalidatePath(`/projects/${project.slug}`);
 

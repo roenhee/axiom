@@ -14,6 +14,13 @@ export interface AttachmentDetail {
   size: number;
   createdAt: Date;
   uploadedBy: { name: string | null; email: string };
+  /// D-045. office preview 변환 상태 (PPTX/DOCX/XLSX 만 해당).
+  /// null/"converting"/"ready"/"failed".
+  previewStatus: string | null;
+  previewError: string | null;
+  /// D-045. uploadRoot 기준 상대경로 (`<projectId>/<stored>.preview.pdf`).
+  /// "ready" 상태일 때만 의미 있음. UI 는 직접 사용 안 함 — `/api/attachments/<id>?preview=1` 로 fetch.
+  previewPath: string | null;
 }
 
 /**
@@ -37,6 +44,9 @@ export async function getAttachment(
       size: true,
       createdAt: true,
       uploadedBy: { select: { name: true, email: true } },
+      previewStatus: true,
+      previewError: true,
+      previewPath: true,
     },
   });
   if (!a) return null;
@@ -51,5 +61,8 @@ export async function getAttachment(
     size: a.size,
     createdAt: a.createdAt,
     uploadedBy: a.uploadedBy,
+    previewStatus: a.previewStatus,
+    previewError: a.previewError,
+    previewPath: a.previewPath,
   };
 }

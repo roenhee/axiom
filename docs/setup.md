@@ -162,6 +162,42 @@ Phase 3 후. 로컬은 `http://localhost:3001` 정도.
 
 ---
 
+## 4b. LibreOffice 설치 (D-045 — Office 첨부 미리보기 변환용)
+
+PPTX / DOCX / XLSX 같은 office 첨부는 업로드 즉시 서버에서 LibreOffice 가 PDF 로
+변환한다. 변환된 PDF 를 react-pdf 가 미리보기 패널에 표시한다. 원본 PPTX/DOCX/XLSX
+는 그대로 남아 다운로드 시 제공된다.
+
+LibreOffice 가 없으면 office 첨부 업로드는 받지만 미리보기는 "변환 실패" 상태로
+다운로드 버튼만 노출된다.
+
+### macOS
+
+```bash
+brew install --cask libreoffice
+```
+
+설치 후 `.env` 의 `LIBREOFFICE_PATH` 가
+`/Applications/LibreOffice.app/Contents/MacOS/soffice` 인지 확인.
+
+### Linux (Ubuntu / Debian)
+
+```bash
+sudo apt update
+sudo apt install -y libreoffice
+```
+
+`.env` 의 `LIBREOFFICE_PATH` 를 `/usr/bin/soffice` 로 변경.
+
+### 동작 확인
+
+```bash
+# 버전 정보 출력되면 OK
+$LIBREOFFICE_PATH --version
+```
+
+---
+
 ## 5. Claude Code 데스크톱 앱
 
 Claude Code 데스크톱 앱을 설치하고, 이 레포 디렉토리를 연다.

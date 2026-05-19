@@ -6,17 +6,15 @@ import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { deleteAttachment } from "@/server/attachments/delete-attachment";
 import type { AttachmentDetail } from "@/server/attachments/get-attachment";
+import { isNextControlFlowError } from "@/lib/is-next-error";
 import { HtmlPreview } from "./HtmlPreview";
+import { OfficePreview } from "./OfficePreview";
 
-// react-pdf 와 pptx-preview 는 SSR 단계에서 DOMMatrix / canvas / window 등 브라우저
-// 전용 API 를 참조 → 서버 렌더 시 ReferenceError. ssr:false 로 client-only 로드.
+// react-pdf 는 SSR 단계에서 DOMMatrix / canvas / window 등 브라우저 전용 API 를
+// 참조 → 서버 렌더 시 ReferenceError. ssr:false 로 client-only 로드.
 const PdfPreview = dynamic(
   () => import("./PdfPreview").then((m) => ({ default: m.PdfPreview })),
   { ssr: false, loading: () => <PreviewLoading message="PDF 로딩 중…" /> },
-);
-const PptxPreview = dynamic(
-  () => import("./PptxPreview").then((m) => ({ default: m.PptxPreview })),
-  { ssr: false, loading: () => <PreviewLoading message="PPTX 로딩 중…" /> },
 );
 
 function PreviewLoading({ message }: { message: string }) {
@@ -54,6 +52,7 @@ export function AttachmentView({ attachment }: Props) {
       try {
         await deleteAttachment(attachment.id);
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "삭제 실패");
       }
     });
@@ -103,7 +102,11 @@ export function AttachmentView({ attachment }: Props) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <PreviewBody attachment={attachment} inlineUrl={inlineUrl} />
+        <PreviewBody
+          attachment={attachment}
+          inlineUrl={inlineUrl}
+          downloadUrl={downloadUrl}
+        />
       </div>
 
       <ConfirmDialog
@@ -123,26 +126,44 @@ export function AttachmentView({ attachment }: Props) {
   );
 }
 
-const PPTX_MIME =
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const OFFICE_EXTS = /\.(pptx|ppt|docx|doc|xlsx|xls)$/i;
+const OFFICE_MIMES = new Set([
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/msword",
+  "application/vnd.ms-excel",
+]);
 
 function PreviewBody({
   attachment,
   inlineUrl,
+  downloadUrl,
 }: {
   attachment: AttachmentDetail;
   inlineUrl: string;
+  downloadUrl: string;
 }) {
   const mime = attachment.mimeType.toLowerCase();
   const name = attachment.fileName.toLowerCase();
   const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
-  const isPptx = mime === PPTX_MIME || name.endsWith(".pptx");
+  const isOffice = OFFICE_MIMES.has(mime) || OFFICE_EXTS.test(name);
   const isHtml =
     mime === "text/html" || name.endsWith(".html") || name.endsWith(".htm");
 
-  // PDF / PPTX / HTML 는 자체 layout — outer padding 안 줌.
+  // PDF / Office / HTML 는 자체 layout — outer padding 안 줌.
   if (isPdf) return <PdfPreview url={inlineUrl} />;
-  if (isPptx) return <PptxPreview url={inlineUrl} />;
+  if (isOffice)
+    return (
+      <OfficePreview
+        attachmentId={attachment.id}
+        fileName={attachment.fileName}
+        initialStatus={attachment.previewStatus}
+        initialError={attachment.previewError}
+        downloadUrl={downloadUrl}
+      />
+    );
   if (isHtml)
     return <HtmlPreview url={inlineUrl} title={attachment.fileName} />;
 

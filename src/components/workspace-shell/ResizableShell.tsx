@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { updateProject } from "@/server/projects/update-project";
 import { archiveProject } from "@/server/projects/archive-project";
+import { isNextControlFlowError } from "@/lib/is-next-error";
 import { ResizeHandle } from "./ResizeHandle";
 
 interface Props {
@@ -169,6 +170,7 @@ function ProjectTitle({
       try {
         await archiveProject(projectId);
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "아카이브 실패");
       }
     });

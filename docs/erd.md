@@ -269,6 +269,11 @@ D-038. 임의 파일 (PDF / 이미지 / zip 등) 첨부. 폴더 트리에 폴더
 배치 — 같은 부모 안에서 `order` 통합 공간 (D-036 연장). 실제 파일은
 `${UPLOAD_STORAGE_DIR}/<projectId>/<storedName>` 에 저장.
 
+**D-045**: Office 파일 (PPTX/DOCX/XLSX) 은 업로드 직후 LibreOffice 로 PDF 변환
+하여 미리보기 fidelity 보장. 변환 결과 PDF 는 `<projectId>/<stored>.preview.pdf`
+로 같은 디렉토리에 저장. 원본 PPTX/DOCX/XLSX 는 그대로 남아 다운로드 시 제공.
+`previewStatus / previewPath / previewError` 3개 컬럼이 변환 상태 추적.
+
 ```prisma
 model Attachment {
   id           String   @id @default(cuid())
@@ -281,6 +286,11 @@ model Attachment {
   order        Int      @default(0)
   uploadedById String   @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
+
+  // D-045 — Office 미리보기 변환 상태
+  previewStatus String? @map("preview_status")  // null|"converting"|"ready"|"failed"
+  previewPath   String? @map("preview_path")    // "<projectId>/<stored>.preview.pdf"
+  previewError  String? @map("preview_error") @db.Text
 
   project    Project @relation(fields: [projectId],   references: [id], onDelete: Cascade)
   folder     Folder? @relation(fields: [folderId],    references: [id], onDelete: SetNull)

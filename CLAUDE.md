@@ -75,6 +75,42 @@ Hub의 `.env`에 `PROTOTYPE_REPO_PATH`로 prototype repo의 절대 경로를 박
 
 ---
 
+## Git worktree 위치 규약 (D-044)
+
+**Claude Code 가 isolation 모드로 worktree 를 만들 때 기본 경로는
+`<repo>/.claude/worktrees/<name>/` 인데, 이 경로에서 `npm run dev` 를 돌리면 Mac 이
+freeze 된다. 반드시 `~/work/` 같은 별도 경로로 옮긴 다음에 dev 서버를 띄운다.**
+
+### 왜
+- `<repo>/.claude/` 는 Claude Code 의 세션 디렉토리. agent 가 watch 중.
+- Next dev (Turbopack) 는 `.next/dev/` 에 초당 수천 개 파일을 쓴다.
+- worktree 가 `.claude/` 안에 있으면 그 모든 쓰기가 Claude watcher 로 흘러들어가
+  fsevents 폭주 → 시스템 freeze.
+
+### 새 worktree 만들 때 절차
+
+```bash
+# 1) Claude Code isolation 으로 만들어졌든, 수동으로 만들었든
+#    .claude/ 안에 있다면 즉시 옮긴다.
+mkdir -p ~/work
+git -C <main-repo> worktree move \
+  <main-repo>/.claude/worktrees/<name> \
+  ~/work/<name>
+
+# 2) 옮긴 후 옛 경로에 stale .next 가 있으면 지운다.
+#    (대부분 자동 이동되지만 옛 위치에 흔적이 남기도 함)
+
+# 3) 새 경로에서만 dev 를 돌린다.
+cd ~/work/<name> && npm run dev
+```
+
+### 추가 안전장치
+- `next.config.ts` 에 `turbopack.root = path.resolve(__dirname)` 박혀있다.
+  worktree 가 메인 레포 안에 있더라도 Turbopack 의 file watcher 가 상위로 안 올라가도록.
+- 메인 레포 / 다른 worktree 에 stale `.next/` 가 남아있다면 회수하는 게 좋다 (수 백 MB ~ 1GB).
+
+---
+
 ## 위험 1·2·3 방어 코드 원칙 (사내 서버 이전 비용을 작게 유지)
 
 지금은 로컬에서만 돌리지만, 나중에 사내 서버로 옮길 때 비용을 작게 유지하려면 다음 세 가지를 처음부터 지킨다.
@@ -193,3 +229,7 @@ npx prisma generate
 - prototype repo 경로 하드코딩
 - preview URL을 DB에 절대 URL로 저장
 - AI Runner 코드를 여기저기 흩뿌리기
+- **`<repo>/.claude/worktrees/...` 안에서 `npm run dev` 돌리기** — Mac freeze.
+  반드시 `~/work/<name>/` 같은 별도 경로로 worktree 옮긴 뒤에 dev 띄운다. (D-044)
+- `try { await serverAction() } catch (e) { alert(e.message) }` 패턴에서
+  NEXT_ digest 에러를 흡수하기 — 반드시 `isNextControlFlowError(e)` 로 거르고 다시 throw. (D-042)

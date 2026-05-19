@@ -23,6 +23,7 @@ const ApiSwaggerView = dynamic(
   },
 );
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { isNextControlFlowError } from "@/lib/is-next-error";
 import { updateSpec } from "@/server/specs/update-spec";
 import { deleteSpec } from "@/server/specs/delete-spec";
 import { publishSpecVersion } from "@/server/spec-versions/publish-spec-version";
@@ -225,6 +226,7 @@ function SpecHeader({ spec, folders }: { spec: SpecData; folders: FolderNode[] }
       try {
         await deleteSpec(spec.id);
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "삭제 실패");
       }
     });

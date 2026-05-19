@@ -215,6 +215,17 @@ model Attachment {
   uploadedById String   @map("uploaded_by_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  /// D-045. Office (PPTX/DOCX/XLSX) 첨부의 PDF 미리보기 변환 상태.
+  /// null     = 변환 대상이 아니거나 아직 큐 진입 전.
+  /// "converting" = LibreOffice 변환 진행 중.
+  /// "ready"      = 변환 성공. previewPath 유효.
+  /// "failed"     = 변환 실패. previewError 유효.
+  previewStatus String? @map("preview_status")
+  /// uploadRoot 기준 상대경로 — 예: `<projectId>/<stored>.preview.pdf`.
+  previewPath   String? @map("preview_path")
+  /// 변환 실패 시 사용자/디버깅용 메시지 (앞 1000자 권장).
+  previewError  String? @map("preview_error") @db.Text
+
   project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   folder     Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   uploadedBy User    @relation(fields: [uploadedById], references: [id], onDelete: Restrict)

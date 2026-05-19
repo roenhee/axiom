@@ -29,6 +29,7 @@ import { moveSpec } from "@/server/specs/move-spec";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { isNextControlFlowError } from "@/lib/is-next-error";
 import type { SpecType } from "@/generated/prisma/enums";
 import { useRouter } from "next/navigation";
 import { createSpec } from "@/server/specs/create-spec";
@@ -1064,6 +1065,7 @@ function FolderRow({
       try {
         await deleteFolder({ id: folder.id });
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "삭제 실패");
       }
     });
@@ -1254,6 +1256,7 @@ function SpecRow({
       try {
         await deleteSpec(spec.id);
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "삭제 실패");
       }
     });
@@ -1748,6 +1751,7 @@ function AttachmentRow({
       try {
         await deleteAttachment(attachment.id);
       } catch (e) {
+        if (isNextControlFlowError(e)) throw e;
         window.alert(e instanceof Error ? e.message : "삭제 실패");
       }
     });
